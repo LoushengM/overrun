@@ -14,7 +14,7 @@ The repository intentionally favors a small playable loop over a content framewo
 - Armor with diminishing returns and brief post-hit invulnerability frames
 - Regeneration only below 50% health after a damage delay
 - Persistent percentage-based health pickups
-- Endless time scaling and anti-lull spawn surges
+- Endless health, damage, and movement scaling with anti-lull spawn-and-speed surges
 - Persistent optional bosses with a telegraphed attack
 - A minimap that always marks bosses
 - Death summary and one-input restart

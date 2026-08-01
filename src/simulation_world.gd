@@ -307,7 +307,10 @@ func _update_enemies(delta: float) -> void:
             if distance_to_player > 0.001:
                 direction = to_player / distance_to_player
 
-        enemy_positions[i] = position + direction * enemy_speeds[i] * delta
+        var movement_multiplier := _current_boss_speed_scale() if enemy_kinds[i] == EnemyKind.BOSS else _current_normal_speed_scale()
+        if enemy_kinds[i] == EnemyKind.NORMAL:
+            movement_multiplier *= _surge_speed_multiplier(distance_to_player)
+        enemy_positions[i] = position + direction * enemy_speeds[i] * movement_multiplier * delta
 
         if not touched_player and player_contact_cooldown <= 0.0:
             var combined_radius := GameConfig.PLAYER_RADIUS + enemy_radii[i]
@@ -529,17 +532,50 @@ func _spawn_normal_enemy() -> void:
     var distance := rng.randf_range(760.0, 1040.0)
     var minutes := elapsed_time / 60.0
     var damage_scale := 1.0 + 0.10 * minutes + 0.020 * minutes * minutes
-    var speed_scale := minf(1.75, 1.0 + 0.03 * minutes)
     _add_enemy(
         player_position + Vector2.from_angle(angle) * distance,
         _current_normal_enemy_health(),
-        GameConfig.NORMAL_ENEMY_SPEED * speed_scale,
+        GameConfig.NORMAL_ENEMY_SPEED,
         GameConfig.NORMAL_ENEMY_DAMAGE * damage_scale,
         GameConfig.NORMAL_ENEMY_RADIUS,
         GameConfig.NORMAL_ENEMY_XP,
         EnemyKind.NORMAL,
         Vector2.ZERO
     )
+
+
+func _current_normal_speed_scale() -> float:
+    var minutes := elapsed_time / 60.0
+    return minf(
+        GameConfig.NORMAL_ENEMY_SPEED_SCALE_CAP,
+        1.0
+        + GameConfig.NORMAL_ENEMY_SPEED_SCALE_PER_MINUTE * minutes
+        + GameConfig.NORMAL_ENEMY_SPEED_SCALE_QUADRATIC * minutes * minutes
+    )
+
+
+func _current_boss_speed_scale() -> float:
+    var minutes := elapsed_time / 60.0
+    return minf(
+        GameConfig.BOSS_SPEED_SCALE_CAP,
+        1.0 + GameConfig.BOSS_SPEED_SCALE_PER_MINUTE * minutes
+    )
+
+
+func _surge_speed_multiplier(distance_to_player: float) -> float:
+    if not surge_active:
+        return 1.0
+    var ramp := minf(1.0, surge_time / GameConfig.SURGE_RAMP_TIME)
+    var fade_distance := maxf(
+        1.0,
+        GameConfig.SURGE_SPEED_FULL_DISTANCE - GameConfig.SURGE_SPEED_FADE_START
+    )
+    var distance_factor := clampf(
+        (distance_to_player - GameConfig.SURGE_SPEED_FADE_START) / fade_distance,
+        0.0,
+        1.0
+    )
+    return 1.0 + (GameConfig.SURGE_MAX_SPEED_MULTIPLIER - 1.0) * ramp * distance_factor
 
 
 func _spawn_boss() -> void:

@@ -151,6 +151,8 @@ Behavior:
 
 - Move directly toward the player.
 - Use no navigation mesh or pathfinding.
+- Increase movement speed continuously with elapsed run time, including enemies already alive.
+- During an anti-lull surge, apply an additional ramping movement multiplier to distant normal enemies; fade that multiplier out near the player.
 - Apply contact damage through the shared damage pipeline.
 - Respect a short contact-hit interval so overlap does not deal damage every frame.
 

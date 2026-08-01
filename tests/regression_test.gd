@@ -105,6 +105,30 @@ func _run() -> void:
     world._apply_player_damage(10.0, true)
     assert(is_equal_approx(world.player_health, 80.0), "Damage must resume after invulnerability expires")
 
+    _clear_combat_state(world)
+    world.player_position = Vector2.ZERO
+    world.elapsed_time = 0.0
+    world.surge_active = false
+    world._add_enemy(Vector2(1000.0, 0.0), 100.0, 100.0, 0.0, 14.0, 0, SimulationWorld.EnemyKind.NORMAL, Vector2.ZERO)
+    world._update_enemies(0.50)
+    assert(is_equal_approx(world.enemy_positions[0].x, 950.0), "Normal enemies must use their base speed at run start")
+
+    world.enemy_positions[0] = Vector2(1000.0, 0.0)
+    world.elapsed_time = 600.0
+    world._update_enemies(0.50)
+    assert(is_equal_approx(world.enemy_positions[0].x, 910.0), "Existing normal enemies must accelerate as run time increases")
+
+    world.enemy_positions[0] = Vector2(2000.0, 0.0)
+    world.elapsed_time = 0.0
+    world.surge_active = true
+    world.surge_time = GameConfig.SURGE_RAMP_TIME
+    world._update_enemies(0.50)
+    assert(is_equal_approx(world.enemy_positions[0].x, 1900.0), "A fully ramped surge must double distant normal-enemy movement")
+
+    world.enemy_positions[0] = Vector2(400.0, 0.0)
+    world._update_enemies(0.50)
+    assert(is_equal_approx(world.enemy_positions[0].x, 350.0), "Surge speed must fade out near the player")
+
     scene.queue_free()
     await process_frame
     print("REGRESSION_TEST_OK")
