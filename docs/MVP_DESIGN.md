@@ -185,6 +185,8 @@ Suggested contact-hit interval: **0.5 seconds per source**. This can be simplifi
 
 After any successful hit, grant the player **0.35 seconds of global invulnerability**. Contact and boss attacks both respect this window. Flash the player sprite during the window so blocked follow-up hits are readable.
 
+Apply repeatable one-shot protection to a single lethal hit that begins while the player is above 50% maximum health. Resolve armor first; if the resulting hit would kill, leave the player at exactly 1 HP instead and show a brief gold protection ring. Hits beginning at exactly 50% health or lower are not protected. The normal 0.35-second post-hit invulnerability still begins after protection triggers.
+
 ## 9. XP and level curve
 
 Rewards:

@@ -11,7 +11,7 @@ The repository intentionally favors a small playable loop over a content framewo
 - An array-based enemy and projectile simulation with batched rendering
 - XP with three-choice paused level-ups and damage-scaling pity
 - Infinite global damage scaling plus distinct capped upgrade pools for every weapon, including Longshot projectile size
-- Armor with diminishing returns and brief post-hit invulnerability frames
+- Armor with diminishing returns, brief post-hit invulnerability frames, and lethal-hit protection above 50% HP
 - Regeneration only below 50% health after a damage delay
 - Persistent percentage-based health pickups
 - Endless health, damage, and uncapped movement scaling with anti-lull spawn-and-speed surges

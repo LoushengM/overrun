@@ -39,6 +39,7 @@ var player_pickup_radius := GameConfig.PLAYER_PICKUP_RADIUS
 var time_since_player_damage := 999.0
 var player_contact_cooldown := 0.0
 var player_invulnerability_timer := 0.0
+var player_one_shot_protection_timer := 0.0
 
 # `weapon_damage` is the uncapped global damage stat expressed in Needle base
 # damage units. Every weapon scales by weapon_damage / NEEDLE_DAMAGE.
@@ -198,6 +199,7 @@ func reset_run() -> void:
     time_since_player_damage = 999.0
     player_contact_cooldown = 0.0
     player_invulnerability_timer = 0.0
+    player_one_shot_protection_timer = 0.0
 
     weapon_damage = GameConfig.NEEDLE_DAMAGE
     owned_weapons.assign(["needle"])
@@ -310,6 +312,7 @@ func _physics_process(delta: float) -> void:
     time_since_player_damage += delta
     player_contact_cooldown = maxf(0.0, player_contact_cooldown - delta)
     player_invulnerability_timer = maxf(0.0, player_invulnerability_timer - delta)
+    player_one_shot_protection_timer = maxf(0.0, player_one_shot_protection_timer - delta)
     surge_cooldown = maxf(0.0, surge_cooldown - delta)
 
     _update_player(delta)
@@ -885,7 +888,13 @@ func _apply_player_damage(raw_damage: float, ignores_contact_cooldown: bool) -> 
     if not ignores_contact_cooldown and player_contact_cooldown > 0.0:
         return
     var final_damage := raw_damage * 100.0 / (100.0 + player_armor)
-    player_health -= final_damage
+    var health_fraction_before_hit := player_health / maxf(1.0, player_max_health)
+    var lethal_hit := final_damage >= player_health
+    if lethal_hit and health_fraction_before_hit > GameConfig.PLAYER_ONE_SHOT_PROTECTION_THRESHOLD:
+        player_health = GameConfig.PLAYER_ONE_SHOT_PROTECTION_HEALTH
+        player_one_shot_protection_timer = GameConfig.PLAYER_ONE_SHOT_PROTECTION_VISUAL_DURATION
+    else:
+        player_health -= final_damage
     time_since_player_damage = 0.0
     player_invulnerability_timer = GameConfig.PLAYER_HIT_INVULNERABILITY
     if not ignores_contact_cooldown:
@@ -1371,6 +1380,7 @@ func get_stats_snapshot() -> Dictionary:
         "sniper_radius": sniper_radius,
         "move_speed": player_move_speed,
         "camera_zoom": camera.zoom.x,
+        "one_shot_protection": player_one_shot_protection_timer > 0.0,
         "surge": surge_active,
         "fps": Engine.get_frames_per_second(),
     }
@@ -1523,6 +1533,18 @@ func _draw() -> void:
             72,
             Color(0.72, 0.36, 1.0, 1.0 - aura_fraction),
             7.0
+        )
+
+    if player_one_shot_protection_timer > 0.0:
+        var protection_fraction := player_one_shot_protection_timer / GameConfig.PLAYER_ONE_SHOT_PROTECTION_VISUAL_DURATION
+        draw_arc(
+            player_position,
+            GameConfig.PLAYER_RADIUS + 13.0 + 5.0 * (1.0 - protection_fraction),
+            0.0,
+            TAU,
+            48,
+            Color(1.0, 0.88, 0.25, protection_fraction),
+            5.0
         )
 
     var player_flash := player_invulnerability_timer > 0.0 and int(Time.get_ticks_msec() / 55) % 2 == 0

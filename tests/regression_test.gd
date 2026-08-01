@@ -131,6 +131,26 @@ func _test_player_invulnerability(world: SimulationWorld) -> void:
     world._apply_player_damage(10.0, true)
     assert(is_equal_approx(world.player_health, 80.0), "Damage must resume after invulnerability expires")
 
+    world.player_health = 51.0
+    world.player_max_health = 100.0
+    world.player_armor = 0.0
+    world.player_invulnerability_timer = 0.0
+    world.player_one_shot_protection_timer = 0.0
+    world._apply_player_damage(1000.0, true)
+    assert(world.is_running, "A lethal hit above 50% health must not end the run")
+    assert(is_equal_approx(world.player_health, 1.0), "One-shot protection must leave the player at exactly 1 HP")
+    assert(world.player_one_shot_protection_timer > 0.0, "One-shot protection must trigger its visible feedback")
+    assert(world.player_invulnerability_timer > 0.0, "One-shot protection must still grant normal post-hit invulnerability")
+
+    world.player_health = 50.0
+    world.player_invulnerability_timer = 0.0
+    world.player_one_shot_protection_timer = 0.0
+    world._apply_player_damage(1000.0, true)
+    assert(not world.is_running, "Exactly 50% health must not qualify for one-shot protection")
+    assert(is_equal_approx(world.player_health, 0.0), "An unprotected lethal hit must still end the run")
+    world.reset_run()
+    _clear_combat_state(world)
+
 
 func _test_speed_upgrade_camera_zoom(world: SimulationWorld) -> void:
     world.reset_run()
