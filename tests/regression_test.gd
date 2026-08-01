@@ -79,6 +79,18 @@ func _run() -> void:
         "Each pierce level must add one full projectile damage budget"
     )
 
+    world.elapsed_time = 180.0
+    world.weapon_damage = 10.0
+    assert(world._is_damage_pity_active(), "Damage pity must activate when enemy HP outscales weapon damage")
+    for roll_index in range(20):
+        var pity_options := world._roll_upgrade_options()
+        assert(pity_options.size() == 3, "Damage pity rolls must still contain three choices")
+        assert(pity_options.has("damage"), "Damage pity must guarantee a damage choice")
+        assert(pity_options[0] != pity_options[1] and pity_options[0] != pity_options[2] and pity_options[1] != pity_options[2], "Upgrade choices must remain unique")
+
+    world.weapon_damage = 100.0
+    assert(not world._is_damage_pity_active(), "Damage pity must turn off after damage catches up")
+
     scene.queue_free()
     await process_frame
     print("REGRESSION_TEST_OK")

@@ -525,12 +525,11 @@ func _spawn_normal_enemy() -> void:
         angle = player_move_direction.angle() + rng.randf_range(-0.55, 0.55)
     var distance := rng.randf_range(760.0, 1040.0)
     var minutes := elapsed_time / 60.0
-    var health_scale := 1.0 + 0.12 * minutes + 0.025 * minutes * minutes
     var damage_scale := 1.0 + 0.10 * minutes + 0.020 * minutes * minutes
     var speed_scale := minf(1.75, 1.0 + 0.03 * minutes)
     _add_enemy(
         player_position + Vector2.from_angle(angle) * distance,
-        GameConfig.NORMAL_ENEMY_HEALTH * health_scale,
+        _current_normal_enemy_health(),
         GameConfig.NORMAL_ENEMY_SPEED * speed_scale,
         GameConfig.NORMAL_ENEMY_DAMAGE * damage_scale,
         GameConfig.NORMAL_ENEMY_RADIUS,
@@ -660,11 +659,26 @@ func _roll_upgrade_options() -> Array[String]:
     var pool: Array[String] = []
     for upgrade_id in GameConfig.UPGRADE_IDS:
         pool.append(upgrade_id)
-    pool.shuffle()
+
     var options: Array[String] = []
-    for i in range(mini(3, pool.size())):
-        options.append(pool[i])
+    if _is_damage_pity_active():
+        options.append("damage")
+        pool.erase("damage")
+
+    pool.shuffle()
+    while options.size() < 3 and not pool.is_empty():
+        options.append(pool.pop_back())
     return options
+
+
+func _current_normal_enemy_health() -> float:
+    var minutes := elapsed_time / 60.0
+    var health_scale := 1.0 + 0.12 * minutes + 0.025 * minutes * minutes
+    return GameConfig.NORMAL_ENEMY_HEALTH * health_scale
+
+
+func _is_damage_pity_active() -> bool:
+    return _current_normal_enemy_health() > weapon_damage * GameConfig.DAMAGE_PITY_SHOTS_TO_KILL
 
 
 func xp_required_for(target_level: int) -> int:

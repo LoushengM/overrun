@@ -187,6 +187,7 @@ On level-up:
 - Draw without duplicate choices when possible.
 - Apply the selected upgrade immediately.
 - Preserve XP overflow.
+- Guarantee a Damage choice whenever current normal-enemy health exceeds 1.5 times the weapon's base projectile damage. This prevents utility-heavy RNG from allowing enemy health scaling to strand the build.
 
 First-slice upgrade pool:
 
