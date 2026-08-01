@@ -127,13 +127,13 @@ Suggested starting values:
 | Projectile radius | 6 px |
 | Pierce | 0 |
 
-Pierce semantics must be fixed throughout the codebase:
+Projectile pierce is a consumable damage budget:
 
-- Pierce 0: hit one enemy
-- Pierce 1: hit two enemies
-- Pierce 2: hit three enemies
+`total damage budget = projectile damage × (pierce + 1)`
 
-The projectile owns remaining pierce and lifetime. The damage system owns damage calculation. An enemy does not decide whether a projectile survives.
+A projectile applies only enough damage to consume the target's remaining health, then carries any overkill budget into later enemies. For example, a 10-damage projectile with 0 pierce can kill two 5-health enemies. If a target survives the hit, it consumes the projectile's entire remaining budget and stops it.
+
+A projectile can damage each target only once during its lifetime. Repeat-hit behavior belongs to persistent attacks such as orbiting or melee weapons and must be configured separately from pierce.
 
 ## 8. Initial enemy
 

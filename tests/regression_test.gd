@@ -49,6 +49,36 @@ func _run() -> void:
     world._process_deaths()
     assert(world.enemy_positions.is_empty(), "The lethal hit must still kill the enemy")
 
+    _clear_combat_state(world)
+    world.weapon_damage = 10.0
+    world.weapon_pierce = 0
+    world._add_enemy(Vector2(70.0, 0.0), 10.0, 0.0, 0.0, 14.0, 1, SimulationWorld.EnemyKind.NORMAL, Vector2.ZERO)
+    world._add_enemy(Vector2(110.0, 0.0), 5.0, 0.0, 0.0, 14.0, 1, SimulationWorld.EnemyKind.NORMAL, Vector2.ZERO)
+    world._spawn_projectile(Vector2.LEFT)
+    world.projectile_positions[0] = Vector2(140.0, 0.0)
+    world.projectile_velocities[0] = Vector2(-900.0, 0.0)
+    world._rebuild_enemy_grid()
+    world._update_projectiles(0.10)
+
+    assert(world.hit_targets == [1, 0], "Projectile hits must resolve from nearest to farthest along the path")
+    assert(world.hit_damage.size() == 2, "Overkill damage must carry into the next enemy")
+    assert(is_equal_approx(world.hit_damage[0], 5.0), "The first enemy should consume only its remaining 5 HP")
+    assert(is_equal_approx(world.hit_damage[1], 5.0), "The remaining 5 damage should carry into the second enemy")
+    assert(world.projectile_positions.is_empty(), "A projectile must expire when its damage budget is exhausted")
+
+    world._resolve_hits()
+    assert(is_equal_approx(world.enemy_health[0], 5.0), "The second enemy should retain 5 HP")
+    assert(is_equal_approx(world.enemy_health[1], 0.0), "The first enemy should be killed")
+
+    _clear_combat_state(world)
+    world.weapon_damage = 10.0
+    world.weapon_pierce = 1
+    world._spawn_projectile(Vector2.RIGHT)
+    assert(
+        is_equal_approx(world.projectile_remaining_damage[0], 20.0),
+        "Each pierce level must add one full projectile damage budget"
+    )
+
     scene.queue_free()
     await process_frame
     print("REGRESSION_TEST_OK")
@@ -72,9 +102,10 @@ func _clear_combat_state(world: SimulationWorld) -> void:
     world.projectile_positions.clear()
     world.projectile_velocities.clear()
     world.projectile_lifetimes.clear()
-    world.projectile_damage.clear()
-    world.projectile_remaining_hits.clear()
+    world.projectile_remaining_damage.clear()
     world.projectile_attack_ids.clear()
+    world.projectile_candidate_targets.clear()
+    world.projectile_candidate_fractions.clear()
     world.hit_targets.clear()
     world.hit_damage.clear()
     world._release_grid_buckets()

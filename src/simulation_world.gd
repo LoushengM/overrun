@@ -62,9 +62,11 @@ var enemy_boss_telegraph: Array[float] = []
 var projectile_positions: Array[Vector2] = []
 var projectile_velocities: Array[Vector2] = []
 var projectile_lifetimes: Array[float] = []
-var projectile_damage: Array[float] = []
-var projectile_remaining_hits: Array[int] = []
+var projectile_remaining_damage: Array[float] = []
 var projectile_attack_ids: Array[int] = []
+
+var projectile_candidate_targets: Array[int] = []
+var projectile_candidate_fractions: Array[float] = []
 
 var pickup_positions: Array[Vector2] = []
 
@@ -115,9 +117,10 @@ func reset_run() -> void:
     projectile_positions.clear()
     projectile_velocities.clear()
     projectile_lifetimes.clear()
-    projectile_damage.clear()
-    projectile_remaining_hits.clear()
+    projectile_remaining_damage.clear()
     projectile_attack_ids.clear()
+    projectile_candidate_targets.clear()
+    projectile_candidate_fractions.clear()
     pickup_positions.clear()
     hit_targets.clear()
     hit_damage.clear()
@@ -340,8 +343,7 @@ func _spawn_projectile(direction: Vector2) -> void:
     projectile_positions.append(player_position + direction * (GameConfig.PLAYER_RADIUS + 8.0))
     projectile_velocities.append(direction * weapon_speed)
     projectile_lifetimes.append(weapon_lifetime)
-    projectile_damage.append(weapon_damage)
-    projectile_remaining_hits.append(weapon_pierce + 1)
+    projectile_remaining_damage.append(weapon_damage * float(weapon_pierce + 1))
     projectile_attack_ids.append(next_attack_id)
     next_attack_id += 1
     if next_attack_id >= 2147483000:
@@ -369,7 +371,8 @@ func _update_projectiles(delta: float) -> void:
         var max_point := Vector2(maxf(start.x, finish.x), maxf(start.y, finish.y)) + Vector2.ONE * 50.0
         var min_cell := _grid_cell(min_point)
         var max_cell := _grid_cell(max_point)
-        var exhausted := false
+        projectile_candidate_targets.clear()
+        projectile_candidate_fractions.clear()
 
         for cell_x in range(min_cell.x, max_cell.x + 1):
             for cell_y in range(min_cell.y, max_cell.y + 1):
@@ -385,19 +388,41 @@ func _update_projectiles(delta: float) -> void:
                     if enemy_last_hit_attack[enemy_index] == projectile_attack_ids[projectile_index]:
                         continue
                     var collision_radius := radius + enemy_radii[enemy_index]
-                    if _segment_hits_circle(start, finish, enemy_positions[enemy_index], collision_radius):
-                        enemy_last_hit_attack[enemy_index] = projectile_attack_ids[projectile_index]
-                        var damage_value := projectile_damage[projectile_index]
-                        hit_targets.append(enemy_index)
-                        hit_damage.append(damage_value)
-                        enemy_reserved_damage[enemy_index] += damage_value
-                        projectile_remaining_hits[projectile_index] -= 1
-                        if projectile_remaining_hits[projectile_index] <= 0:
-                            exhausted = true
-                            break
-                if exhausted:
-                    break
-            if exhausted:
+                    var hit_fraction := _segment_circle_hit_fraction(
+                        start,
+                        finish,
+                        enemy_positions[enemy_index],
+                        collision_radius
+                    )
+                    if hit_fraction >= 0.0:
+                        projectile_candidate_targets.append(enemy_index)
+                        projectile_candidate_fractions.append(hit_fraction)
+
+        _sort_projectile_candidates()
+        var exhausted := false
+        for candidate_index in range(projectile_candidate_targets.size()):
+            var enemy_index := projectile_candidate_targets[candidate_index]
+            var target_remaining_health := enemy_health[enemy_index] - enemy_reserved_damage[enemy_index]
+            if target_remaining_health <= 0.0:
+                continue
+            if enemy_last_hit_attack[enemy_index] == projectile_attack_ids[projectile_index]:
+                continue
+
+            var damage_value := minf(
+                projectile_remaining_damage[projectile_index],
+                target_remaining_health
+            )
+            if damage_value <= 0.0:
+                continue
+
+            enemy_last_hit_attack[enemy_index] = projectile_attack_ids[projectile_index]
+            hit_targets.append(enemy_index)
+            hit_damage.append(damage_value)
+            enemy_reserved_damage[enemy_index] += damage_value
+            projectile_remaining_damage[projectile_index] -= damage_value
+
+            if projectile_remaining_damage[projectile_index] <= 0.0001:
+                exhausted = true
                 break
 
         if exhausted:
@@ -706,14 +731,34 @@ func _grid_cell(position: Vector2) -> Vector2i:
     )
 
 
-func _segment_hits_circle(start: Vector2, finish: Vector2, center: Vector2, radius: float) -> bool:
+func _segment_circle_hit_fraction(start: Vector2, finish: Vector2, center: Vector2, radius: float) -> float:
     var segment := finish - start
     var length_squared := segment.length_squared()
-    var closest := start
-    if length_squared > 0.0001:
-        var t := clampf((center - start).dot(segment) / length_squared, 0.0, 1.0)
-        closest = start + segment * t
-    return closest.distance_squared_to(center) <= radius * radius
+    if length_squared <= 0.0001:
+        return 0.0 if start.distance_squared_to(center) <= radius * radius else -1.0
+
+    var projection := clampf((center - start).dot(segment) / length_squared, 0.0, 1.0)
+    var closest := start + segment * projection
+    var distance_squared := closest.distance_squared_to(center)
+    var radius_squared := radius * radius
+    if distance_squared > radius_squared:
+        return -1.0
+
+    var half_chord_fraction := sqrt(maxf(0.0, radius_squared - distance_squared) / length_squared)
+    return clampf(projection - half_chord_fraction, 0.0, 1.0)
+
+
+func _sort_projectile_candidates() -> void:
+    for i in range(1, projectile_candidate_targets.size()):
+        var target := projectile_candidate_targets[i]
+        var fraction := projectile_candidate_fractions[i]
+        var insertion_index := i - 1
+        while insertion_index >= 0 and projectile_candidate_fractions[insertion_index] > fraction:
+            projectile_candidate_targets[insertion_index + 1] = projectile_candidate_targets[insertion_index]
+            projectile_candidate_fractions[insertion_index + 1] = projectile_candidate_fractions[insertion_index]
+            insertion_index -= 1
+        projectile_candidate_targets[insertion_index + 1] = target
+        projectile_candidate_fractions[insertion_index + 1] = fraction
 
 
 func _remove_enemy(index: int) -> void:
@@ -753,14 +798,12 @@ func _remove_projectile(index: int) -> void:
         projectile_positions[index] = projectile_positions[last]
         projectile_velocities[index] = projectile_velocities[last]
         projectile_lifetimes[index] = projectile_lifetimes[last]
-        projectile_damage[index] = projectile_damage[last]
-        projectile_remaining_hits[index] = projectile_remaining_hits[last]
+        projectile_remaining_damage[index] = projectile_remaining_damage[last]
         projectile_attack_ids[index] = projectile_attack_ids[last]
     projectile_positions.pop_back()
     projectile_velocities.pop_back()
     projectile_lifetimes.pop_back()
-    projectile_damage.pop_back()
-    projectile_remaining_hits.pop_back()
+    projectile_remaining_damage.pop_back()
     projectile_attack_ids.pop_back()
 
 

@@ -83,7 +83,7 @@ const UPGRADE_DESCRIPTIONS := {
     "damage": "+20% weapon damage",
     "fire_rate": "-12% weapon cooldown",
     "projectile_count": "+1 projectile per attack",
-    "pierce": "+1 pierce",
+    "pierce": "Adds one full projectile damage budget",
     "move_speed": "+10% movement speed",
     "max_health": "+15% max health and heal the gain",
     "armor": "+10 armor",

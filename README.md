@@ -10,7 +10,7 @@ The repository intentionally favors a small playable loop over a content framewo
 - One straight-line auto-targeting weapon, Needle
 - An array-based enemy and projectile simulation with batched rendering
 - XP with three-choice paused level-ups
-- Damage, fire rate, projectile count, pierce, movement, health, armor, regeneration, and pickup-radius upgrades
+- Damage, fire rate, projectile count, damage-budget pierce, movement, health, armor, regeneration, and pickup-radius upgrades
 - Armor with diminishing returns
 - Regeneration only below 50% health after a damage delay
 - Persistent percentage-based health pickups
