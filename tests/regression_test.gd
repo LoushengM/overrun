@@ -342,18 +342,38 @@ func _test_weapon_firing_rules(world: SimulationWorld) -> void:
     assert(not world._is_upgrade_eligible("sniper_size"), "Longshot size upgrades must disappear at their cap")
     world.weapon_upgrade_levels["sniper_size"] = 1
 
-    # Aura pierce repeats damage against every target in the same pulse.
+    # Aura echoes are distinct delayed pulses that recheck current targets.
     _clear_combat_state(world)
     world.owned_weapons.assign(["needle", "aura"])
-    world.aura_pierce = 2
+    world.aura_echoes = 2
     world.aura_timer = 0.0
     world._add_enemy(Vector2(100.0, 0.0), 100.0, 0.0, 0.0, 14.0, 0, SimulationWorld.EnemyKind.NORMAL, Vector2.ZERO)
+    world._add_enemy(Vector2(400.0, 0.0), 100.0, 0.0, 0.0, 14.0, 0, SimulationWorld.EnemyKind.NORMAL, Vector2.ZERO)
     world.hit_targets.clear()
     world.hit_damage.clear()
     world._update_aura(0.0)
-    assert(world.hit_targets.size() == 3, "Aura pierce must add repeat damage instances to the same target")
+    assert(world.hit_targets == [0], "The initial Aura pulse must hit each current in-range enemy once")
+    assert(world.aura_echoes_remaining == 2, "Aura upgrades must schedule delayed echo pulses")
     world._resolve_hits()
-    assert(is_equal_approx(world.enemy_health[0], 64.0), "Three Aura instances should deal 36 total base damage")
+    assert(is_equal_approx(world.enemy_health[0], 88.0), "The initial Aura pulse must deal one damage instance")
+
+    world.enemy_positions[0] = Vector2(400.0, 0.0)
+    world.enemy_positions[1] = Vector2(100.0, 0.0)
+    world.hit_targets.clear()
+    world.hit_damage.clear()
+    world._update_aura(GameConfig.AURA_ECHO_INTERVAL)
+    assert(world.hit_targets == [1], "Each Aura echo must recheck which enemies are currently in range")
+    assert(world.aura_echoes_remaining == 1, "One delayed Aura echo must remain after the first echo")
+    world._resolve_hits()
+    assert(is_equal_approx(world.enemy_health[1], 88.0), "A newly entered enemy must be hit by the delayed echo")
+
+    world.hit_targets.clear()
+    world.hit_damage.clear()
+    world._update_aura(GameConfig.AURA_ECHO_INTERVAL)
+    assert(world.hit_targets == [1], "The final Aura echo must be a separate pulse")
+    assert(world.aura_echoes_remaining == 0, "The Aura echo sequence must end after the configured pulse count")
+    world._resolve_hits()
+    assert(is_equal_approx(world.enemy_health[1], 76.0), "Two separate echoes must each deal one Aura damage instance")
 
     # Mire Field deploys with no target, persists, damages, and slows.
     _clear_combat_state(world)

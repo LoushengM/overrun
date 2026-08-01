@@ -142,9 +142,9 @@ Longshot has a capped Heavy Caliber track that increases projectile radius by 15
 
 ### Aura Pulse
 
-A slow melee pulse that fires only when an enemy is inside its radius. Every pulse hits every target in range. Aura pierce adds another full damage instance against each target caught by that same pulse, so the same enemy may be hit repeatedly by one attack.
+A slow melee pulse that fires only when an enemy is inside its radius. Every pulse hits every target currently in range once. Echoing Strike adds delayed pulses spaced 0.22 seconds apart; each echo visibly pulses again and rechecks the radius, so enemies may enter or leave between hits.
 
-Starting values: 12 damage per instance, 3.20-second cooldown, 180 px radius, and 0 pierce.
+Starting values: 12 damage per pulse, 3.20-second cooldown, 180 px radius, and 0 echoes.
 
 ### Mire Field
 
@@ -158,7 +158,7 @@ Projectile pierce is a consumable damage budget:
 
 A projectile applies only enough damage to consume the target's remaining health, then carries any overkill budget into later enemies. For example, a 10-damage projectile with 0 pierce can kill two 5-health enemies. If a target survives the hit, it consumes the projectile's entire remaining budget and stops it.
 
-A projectile can damage each target only once during its lifetime. Repeat-hit behavior belongs to explicitly persistent or melee attacks such as Aura Pulse and is separate from projectile pierce.
+A projectile can damage each target only once during its lifetime. Repeat-hit behavior belongs to explicitly persistent or melee attacks. Aura Pulse implements it as separate delayed echoes rather than multiple damage instances in one frame.
 
 ## 8. Initial enemy
 
@@ -236,7 +236,7 @@ Each owned weapon contributes only its own uncapped choices to ordinary level-up
 |---|---|
 | Needle | Fire rate 10, projectile count 10, pierce 10, range 5 |
 | Longshot | Fire rate 8, pierce 6, range 5, projectile size 6 |
-| Aura Pulse | Fire rate 8, radius 6, repeat-hit pierce 6 |
+| Aura Pulse | Fire rate 8, radius 6, delayed echoes 6 |
 | Mire Field | Deployment rate 8, radius 6, duration 6 |
 
 Boss rewards contain only weapon content: at least one new weapon is guaranteed while an empty slot exists, and the remaining choices are uncapped upgrades for already owned weapons. At the four-slot cap, new-weapon choices disappear.

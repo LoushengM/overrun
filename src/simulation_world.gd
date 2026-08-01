@@ -65,8 +65,10 @@ var sniper_timer := 0.35
 
 var aura_cooldown := GameConfig.AURA_COOLDOWN
 var aura_radius := GameConfig.AURA_RADIUS
-var aura_pierce := GameConfig.AURA_PIERCE
+var aura_echoes := GameConfig.AURA_ECHOES
 var aura_timer := 0.50
+var aura_echoes_remaining := 0
+var aura_echo_timer := 0.0
 var aura_visual_timer := 0.0
 
 var field_cooldown := GameConfig.FIELD_COOLDOWN
@@ -227,8 +229,10 @@ func reset_run() -> void:
 
     aura_cooldown = GameConfig.AURA_COOLDOWN
     aura_radius = GameConfig.AURA_RADIUS
-    aura_pierce = GameConfig.AURA_PIERCE
+    aura_echoes = GameConfig.AURA_ECHOES
     aura_timer = 0.50
+    aura_echoes_remaining = 0
+    aura_echo_timer = 0.0
     aura_visual_timer = 0.0
 
     field_cooldown = GameConfig.FIELD_COOLDOWN
@@ -269,7 +273,7 @@ func enable_benchmark() -> void:
     sniper_cooldown = 0.55
     sniper_pierce = 3
     aura_cooldown = 0.85
-    aura_pierce = 3
+    aura_echoes = 3
     field_cooldown = 0.75
     field_duration = 5.5
     enemy_positions.clear()
@@ -475,28 +479,38 @@ func _update_sniper(delta: float) -> void:
 
 func _update_aura(delta: float) -> void:
     aura_timer -= delta
+
+    if aura_echoes_remaining > 0:
+        aura_echo_timer -= delta
+        while aura_echoes_remaining > 0 and aura_echo_timer <= 0.0:
+            _emit_aura_pulse()
+            aura_echoes_remaining -= 1
+            aura_echo_timer += GameConfig.AURA_ECHO_INTERVAL
+        if aura_echoes_remaining > 0:
+            return
+
     if aura_timer > 0.0:
         return
     if _find_nearest_enemy(player_position, aura_radius) < 0:
         aura_timer = 0.08
         return
 
+    _emit_aura_pulse()
+    aura_echoes_remaining = aura_echoes
+    aura_echo_timer = GameConfig.AURA_ECHO_INTERVAL
+    aura_timer += maxf(0.20, aura_cooldown)
+
+
+func _emit_aura_pulse() -> void:
     var damage_instance := _scaled_weapon_damage(GameConfig.AURA_DAMAGE)
-    var repeat_count := aura_pierce + 1
-    var radius_squared := aura_radius * aura_radius
     for enemy_index in range(enemy_positions.size()):
         if enemy_health[enemy_index] - enemy_reserved_damage[enemy_index] <= 0.0:
             continue
         var combined_radius := aura_radius + enemy_radii[enemy_index]
         if player_position.distance_squared_to(enemy_positions[enemy_index]) > combined_radius * combined_radius:
             continue
-        for repeat_index in range(repeat_count):
-            if enemy_health[enemy_index] - enemy_reserved_damage[enemy_index] <= 0.0:
-                break
-            _queue_fixed_damage(enemy_index, damage_instance)
-
+        _queue_fixed_damage(enemy_index, damage_instance)
     aura_visual_timer = GameConfig.AURA_VISUAL_DURATION
-    aura_timer += maxf(0.20, aura_cooldown)
 
 
 func _update_field_launcher(delta: float) -> void:
@@ -981,8 +995,8 @@ func apply_upgrade(upgrade_id: String) -> void:
                 aura_cooldown = maxf(0.35, aura_cooldown * 0.90)
             "aura_radius":
                 aura_radius *= 1.12
-            "aura_pierce":
-                aura_pierce += 1
+            "aura_echoes":
+                aura_echoes += 1
             "field_fire_rate":
                 field_cooldown = maxf(0.35, field_cooldown * 0.90)
             "field_radius":
@@ -1378,6 +1392,7 @@ func get_stats_snapshot() -> Dictionary:
         "pierce": weapon_pierce,
         "needle_range": weapon_range,
         "sniper_radius": sniper_radius,
+        "aura_echoes": aura_echoes,
         "move_speed": player_move_speed,
         "camera_zoom": camera.zoom.x,
         "one_shot_protection": player_one_shot_protection_timer > 0.0,

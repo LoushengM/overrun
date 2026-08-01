@@ -56,13 +56,14 @@ const SNIPER_RADIUS := 8.0
 const SNIPER_PIERCE := 0
 const SNIPER_SIZE_UPGRADE_MULTIPLIER := 1.15
 
-# Aura Pulse: fires only when something is in melee range. Pierce adds repeat
-# damage instances against every target caught by the same pulse.
+# Aura Pulse: fires only when something is in melee range. Echo upgrades add
+# delayed pulses that recheck which enemies are currently inside the radius.
 const AURA_DAMAGE := 12.0
 const AURA_COOLDOWN := 3.20
 const AURA_RADIUS := 180.0
-const AURA_PIERCE := 0
-const AURA_VISUAL_DURATION := 0.35
+const AURA_ECHOES := 0
+const AURA_ECHO_INTERVAL := 0.22
+const AURA_VISUAL_DURATION := 0.18
 
 # Mire Field: places persistent slowing damage zones around the player without
 # requiring a target.
@@ -145,7 +146,7 @@ const SNIPER_UPGRADE_IDS := [
 const AURA_UPGRADE_IDS := [
     "aura_fire_rate",
     "aura_radius",
-    "aura_pierce",
+    "aura_echoes",
 ]
 
 const FIELD_UPGRADE_IDS := [
@@ -172,7 +173,7 @@ const WEAPON_UPGRADE_CAPS := {
     "sniper_size": 6,
     "aura_fire_rate": 8,
     "aura_radius": 6,
-    "aura_pierce": 6,
+    "aura_echoes": 6,
     "field_fire_rate": 8,
     "field_radius": 6,
     "field_duration": 6,
@@ -203,7 +204,7 @@ const UPGRADE_NAMES := {
     "sniper_size": "Longshot — Heavy Caliber",
     "aura_fire_rate": "Aura Pulse — Quicker Pulse",
     "aura_radius": "Aura Pulse — Wider Wave",
-    "aura_pierce": "Aura Pulse — Echoing Strike",
+    "aura_echoes": "Aura Pulse — Echoing Strike",
     "field_fire_rate": "Mire Field — Faster Deployment",
     "field_radius": "Mire Field — Wider Pool",
     "field_duration": "Mire Field — Lingering Mire",
@@ -228,7 +229,7 @@ const UPGRADE_DESCRIPTIONS := {
     "sniper_size": "+15% Longshot projectile size",
     "aura_fire_rate": "-10% Aura Pulse cooldown",
     "aura_radius": "+12% Aura Pulse radius",
-    "aura_pierce": "+1 damage instance against every target in the pulse",
+    "aura_echoes": "+1 delayed pulse that rechecks enemies in range",
     "field_fire_rate": "-10% Mire Field deployment cooldown",
     "field_radius": "+12% Mire Field radius",
     "field_duration": "+0.5 seconds Mire Field duration",
