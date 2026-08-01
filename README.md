@@ -18,6 +18,7 @@ The repository intentionally favors a small playable loop over a content framewo
 - Proportional camera zoom-out whenever player movement speed increases
 - Fast-scaling persistent bosses with telegraphed attacks, burst protection, and weapon-only rewards that can unlock open weapon slots
 - A minimap that always marks bosses
+- A throttled CC0 stock-sound pass for combat, bosses, pickups, upgrades, targeting, and death
 - Death summary and one-input restart
 - A headless 1,200-enemy stress mode
 
@@ -79,10 +80,16 @@ src/game_config.gd          tuning and upgrade text
 src/simulation_world.gd     simulation, combat, spawning, health, XP
 src/hud.gd                  HUD and modal interfaces
 src/minimap.gd              boss and emergency pickup radar
+src/sound_manager.gd        pooled, throttled stock sound playback
+assets/audio/                selected Kenney CC0 effects and license mapping
 scenes/main.tscn            minimal scene composition
 ```
 
 The simulation uses no node per enemy and no signal per hit. Large populations live in compact parallel arrays, collision uses a uniform spatial grid with reused buckets, and normal enemies and projectiles render through `MultiMesh` batches. Needle and Longshot require targets in their own ranges, Aura Pulse schedules delayed echo pulses that recheck nearby enemies, and Mire Field persists and slows nearby enemies without requiring a target.
+
+## Third-party audio
+
+The sound effects in `assets/audio/` are selected and renamed clips from Kenney's Digital Audio, Sci-fi Sounds, Impact Sounds, UI Audio, and Music Jingles packs. They are licensed under Creative Commons Zero (CC0 1.0). See `assets/audio/LICENSE_KENNEY_CC0.txt` for the source-file mapping and license details.
 
 ## Contribution rules
 

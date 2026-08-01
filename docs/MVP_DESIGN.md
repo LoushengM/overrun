@@ -323,6 +323,13 @@ The first boss should:
 
 If the boss cap is reached, do not spawn another entity. Strengthen an existing boss or skip the event. The exact empowerment rule can wait until multiple simultaneous bosses are tested.
 
+
+## Audio feedback
+
+The MVP uses a bounded pool of non-positional one-shot sound players. Rapid combat cues have per-cue cooldowns and slight pitch variation so projectile and hit-heavy builds remain readable instead of producing unbounded overlapping audio. Important state changes—boss spawn and telegraph, boss defeat and reward, player damage and last-stand protection, health pickup, level-up, weapon unlock, targeting toggle, and run end—use distinct cues.
+
+The initial clips are selected from Kenney CC0 audio packs. Only the chosen files and a source/license mapping are stored in the repository.
+
 ## 15. Minimap
 
 The MVP demo minimap shows:

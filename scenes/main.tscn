@@ -1,11 +1,15 @@
-[gd_scene load_steps=4 format=3]
+[gd_scene load_steps=5 format=3]
 
 [ext_resource type="Script" path="res://src/game.gd" id="1_game"]
 [ext_resource type="Script" path="res://src/simulation_world.gd" id="2_world"]
 [ext_resource type="Script" path="res://src/hud.gd" id="3_hud"]
+[ext_resource type="Script" path="res://src/sound_manager.gd" id="4_audio"]
 
 [node name="Game" type="Node"]
 script = ExtResource("1_game")
+
+[node name="SoundManager" type="Node" parent="."]
+script = ExtResource("4_audio")
 
 [node name="World" type="Node2D" parent="."]
 script = ExtResource("2_world")

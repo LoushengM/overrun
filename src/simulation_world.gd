@@ -6,6 +6,7 @@ signal level_up_requested(options: Array[String])
 signal boss_upgrade_requested(options: Array[String])
 signal run_ended(summary: Dictionary)
 signal boss_spawned
+signal sound_requested(cue: String)
 
 enum EnemyKind { NORMAL, BOSS }
 enum ProjectileKind { NEEDLE, SNIPER }
@@ -397,6 +398,7 @@ func _update_enemies(delta: float) -> void:
                 if enemy_boss_attack_timer[i] <= 0.0:
                     enemy_boss_telegraph[i] = 1.1
                     enemy_boss_attack_timer[i] = 4.5
+                    _request_sound("boss_telegraph")
         else:
             if distance_to_player > 0.001:
                 direction = to_player / distance_to_player
@@ -439,6 +441,7 @@ func _update_needle(delta: float) -> void:
 
     var target_direction := player_position.direction_to(enemy_positions[target_index])
     var count := maxi(1, weapon_projectile_count)
+    var projectile_count_before := projectile_positions.size()
     var spread_step := deg_to_rad(8.0)
     var start_offset := -spread_step * float(count - 1) * 0.5
     for i in range(count):
@@ -452,6 +455,8 @@ func _update_needle(delta: float) -> void:
             weapon_radius,
             ProjectileKind.NEEDLE
         )
+    if projectile_positions.size() > projectile_count_before:
+        _request_sound("needle_fire")
     needle_timer += maxf(0.05, weapon_cooldown)
 
 
@@ -466,6 +471,7 @@ func _update_sniper(delta: float) -> void:
         return
 
     var damage_budget := _scaled_weapon_damage(GameConfig.SNIPER_DAMAGE) * float(sniper_pierce + 1)
+    var projectile_count_before := projectile_positions.size()
     _spawn_projectile(
         player_position.direction_to(enemy_positions[target_index]),
         damage_budget,
@@ -474,6 +480,8 @@ func _update_sniper(delta: float) -> void:
         sniper_radius,
         ProjectileKind.SNIPER
     )
+    if projectile_positions.size() > projectile_count_before:
+        _request_sound("longshot_fire")
     sniper_timer += maxf(0.15, sniper_cooldown)
 
 
@@ -511,6 +519,7 @@ func _emit_aura_pulse() -> void:
             continue
         _queue_fixed_damage(enemy_index, damage_instance)
     aura_visual_timer = GameConfig.AURA_VISUAL_DURATION
+    _request_sound("aura_pulse")
 
 
 func _update_field_launcher(delta: float) -> void:
@@ -530,6 +539,7 @@ func _spawn_field() -> void:
     field_lifetimes.append(field_duration)
     field_tick_timers.append(0.0)
     field_radii.append(field_radius)
+    _request_sound("mire_deploy")
 
 
 func _update_fields(delta: float) -> void:
@@ -586,6 +596,11 @@ func _spawn_projectile(
 
 func _scaled_weapon_damage(base_damage: float) -> float:
     return base_damage * weapon_damage / GameConfig.NEEDLE_DAMAGE
+
+
+func _request_sound(cue: String) -> void:
+    if not benchmark_mode:
+        sound_requested.emit(cue)
 
 
 func _has_weapon(weapon_id: String) -> bool:
@@ -704,15 +719,26 @@ func _field_slow_multiplier_at(position: Vector2) -> float:
 
 
 func _resolve_hits() -> void:
+    var hit_normal := false
+    var hit_boss := false
     for i in range(hit_targets.size()):
         var target := hit_targets[i]
         if target < 0 or target >= enemy_health.size():
             continue
         enemy_health[target] -= hit_damage[i]
         enemy_reserved_damage[target] = 0.0
+        if enemy_kinds[target] == EnemyKind.BOSS:
+            hit_boss = true
+        else:
+            hit_normal = true
+    if hit_normal:
+        _request_sound("enemy_hit")
+    if hit_boss:
+        _request_sound("boss_hit")
 
 
 func _process_deaths() -> void:
+    var boss_defeated := false
     for i in range(enemy_health.size() - 1, -1, -1):
         if enemy_health[i] > 0.0:
             continue
@@ -721,9 +747,12 @@ func _process_deaths() -> void:
         xp += enemy_xp[i]
         if enemy_kinds[i] == EnemyKind.BOSS:
             pending_boss_rewards += 1
+            boss_defeated = true
         elif pickup_positions.size() < GameConfig.PICKUP_CAP and rng.randf() < GameConfig.HEALTH_PICKUP_DROP_CHANCE:
             _spawn_health_pickup(enemy_positions[i])
         _remove_enemy(i)
+    if boss_defeated:
+        _request_sound("boss_defeat")
 
 
 func _update_pickups() -> void:
@@ -732,6 +761,7 @@ func _update_pickups() -> void:
         if pickup_positions[i].distance_squared_to(player_position) <= collect_radius_squared:
             player_health = minf(player_max_health, player_health + player_max_health * GameConfig.HEALTH_PICKUP_HEAL)
             _remove_pickup(i)
+            _request_sound("health_pickup")
 
 
 func _update_regeneration(delta: float) -> void:
@@ -789,6 +819,7 @@ func _update_boss_schedule() -> void:
         return
     _spawn_boss()
     boss_spawned.emit()
+    _request_sound("boss_spawn")
 
 
 func _spawn_normal_enemy() -> void:
@@ -904,11 +935,17 @@ func _apply_player_damage(raw_damage: float, ignores_contact_cooldown: bool) -> 
     var final_damage := raw_damage * 100.0 / (100.0 + player_armor)
     var health_fraction_before_hit := player_health / maxf(1.0, player_max_health)
     var lethal_hit := final_damage >= player_health
-    if lethal_hit and health_fraction_before_hit > GameConfig.PLAYER_ONE_SHOT_PROTECTION_THRESHOLD:
+    var one_shot_protection_triggered := (
+        lethal_hit
+        and health_fraction_before_hit > GameConfig.PLAYER_ONE_SHOT_PROTECTION_THRESHOLD
+    )
+    if one_shot_protection_triggered:
         player_health = GameConfig.PLAYER_ONE_SHOT_PROTECTION_HEALTH
         player_one_shot_protection_timer = GameConfig.PLAYER_ONE_SHOT_PROTECTION_VISUAL_DURATION
+        _request_sound("last_stand")
     else:
         player_health -= final_damage
+        _request_sound("player_hit")
     time_since_player_damage = 0.0
     player_invulnerability_timer = GameConfig.PLAYER_HIT_INVULNERABILITY
     if not ignores_contact_cooldown:

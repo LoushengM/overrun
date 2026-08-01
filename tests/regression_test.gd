@@ -13,7 +13,9 @@ func _run() -> void:
 
     var world := scene.get_node("World") as SimulationWorld
     var hud := scene.get_node("HUD") as GameHud
+    var audio := scene.get_node("SoundManager") as SoundManager
 
+    _test_audio_wiring(audio, world)
     _test_pause_and_keyboard_selection(scene, world, hud)
     _test_projectile_damage_conservation(world)
     _test_damage_pity(world)
@@ -25,10 +27,54 @@ func _run() -> void:
     _test_targeting_modes(scene, world, hud)
     _test_weapon_firing_rules(world)
 
+    audio.stop_all()
     scene.queue_free()
-    await process_frame
+    for frame_index in range(6):
+        await process_frame
     print("REGRESSION_TEST_OK")
     quit()
+
+
+func _test_audio_wiring(audio: SoundManager, world: SimulationWorld) -> void:
+    assert(audio != null, "The main scene must include a SoundManager")
+    assert(audio.players.size() == SoundManager.PLAYER_POOL_SIZE, "The sound manager must initialize its bounded player pool")
+    var expected_cues := [
+        "needle_fire",
+        "longshot_fire",
+        "aura_pulse",
+        "mire_deploy",
+        "enemy_hit",
+        "boss_hit",
+        "player_hit",
+        "last_stand",
+        "boss_spawn",
+        "boss_telegraph",
+        "boss_defeat",
+        "health_pickup",
+        "level_up",
+        "boss_reward",
+        "upgrade_select",
+        "weapon_unlock",
+        "target_toggle",
+        "run_over",
+    ]
+    for cue in expected_cues:
+        assert(audio.has_cue(cue), "Missing stock sound cue: %s" % cue)
+        assert(audio.get_stream(cue) != null, "Sound cue must have a loaded stream: %s" % cue)
+
+    world.reset_run()
+    _clear_combat_state(world)
+    world.player_position = Vector2.ZERO
+    world.weapon_projectile_count = 1
+    world.needle_timer = 0.0
+    world._add_enemy(Vector2(100.0, 0.0), 100.0, 0.0, 0.0, 14.0, 0, SimulationWorld.EnemyKind.NORMAL, Vector2.ZERO)
+    var emitted_cues: Array[String] = []
+    var capture_cue := func(cue: String) -> void:
+        emitted_cues.append(cue)
+    world.sound_requested.connect(capture_cue)
+    world._update_needle(0.0)
+    assert(emitted_cues.has("needle_fire"), "Needle fire must request its stock sound")
+    world.sound_requested.disconnect(capture_cue)
 
 
 func _test_pause_and_keyboard_selection(scene: Node, world: SimulationWorld, hud: GameHud) -> void:

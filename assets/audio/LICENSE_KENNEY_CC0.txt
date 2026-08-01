@@ -1,0 +1,45 @@
+Overrun stock sound effects
+===========================
+
+Creator: Kenney Vleugels (Kenney.nl)
+License: Creative Commons Zero (CC0 1.0)
+License URL: https://creativecommons.org/publicdomain/zero/1.0/
+
+These assets may be used in personal and commercial projects. Attribution is
+not required. The selected OGG source clips were converted to 44.1 kHz mono
+16-bit PCM WAV files and renamed for their role in Overrun.
+
+Official pack pages:
+- https://kenney.nl/assets/sci-fi-sounds
+- https://kenney.nl/assets/digital-audio
+- https://kenney.nl/assets/impact-sounds
+- https://kenney.nl/assets/ui-audio
+- https://kenney.nl/assets/music-jingles
+
+Kenney Sci-fi Sounds:
+- needle_fire.wav <- laserSmall_000.ogg
+- longshot_fire.wav <- laserLarge_002.ogg
+- mire_deploy.wav <- slime_000.ogg
+- boss_spawn.wav <- lowFrequency_explosion_001.ogg
+- boss_defeat.wav <- explosionCrunch_000.ogg
+
+Kenney Digital Audio:
+- aura_pulse.wav <- phaserUp3.ogg
+- last_stand.wav <- powerUp9.ogg
+- boss_telegraph.wav <- lowThreeTone.ogg
+- health_pickup.wav <- powerUp2.ogg
+- level_up.wav <- threeTone1.ogg
+- weapon_unlock.wav <- powerUp10.ogg
+- run_over.wav <- lowDown.ogg
+
+Kenney Impact Sounds:
+- enemy_hit.wav <- impactGeneric_light_002.ogg
+- boss_hit.wav <- impactMetal_heavy_003.ogg
+- player_hit.wav <- impactPunch_heavy_001.ogg
+
+Kenney UI Audio:
+- upgrade_select.wav <- click3.ogg
+- target_toggle.wav <- switch7.ogg
+
+Kenney Music Jingles:
+- boss_reward.wav <- jingles_HIT05.ogg
