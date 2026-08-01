@@ -59,6 +59,7 @@ var sniper_cooldown := GameConfig.SNIPER_COOLDOWN
 var sniper_range := GameConfig.SNIPER_RANGE
 var sniper_lifetime := GameConfig.SNIPER_LIFETIME
 var sniper_pierce := GameConfig.SNIPER_PIERCE
+var sniper_radius := GameConfig.SNIPER_RADIUS
 var sniper_timer := 0.35
 
 var aura_cooldown := GameConfig.AURA_COOLDOWN
@@ -219,6 +220,7 @@ func reset_run() -> void:
     sniper_range = GameConfig.SNIPER_RANGE
     sniper_lifetime = GameConfig.SNIPER_LIFETIME
     sniper_pierce = GameConfig.SNIPER_PIERCE
+    sniper_radius = GameConfig.SNIPER_RADIUS
     sniper_timer = 0.35
 
     aura_cooldown = GameConfig.AURA_COOLDOWN
@@ -244,6 +246,7 @@ func reset_run() -> void:
     stats_timer = 0.0
 
     camera.position = player_position
+    _update_camera_zoom()
     for i in range(16):
         _spawn_normal_enemy()
 
@@ -461,7 +464,7 @@ func _update_sniper(delta: float) -> void:
         damage_budget,
         GameConfig.SNIPER_SPEED,
         sniper_lifetime,
-        GameConfig.SNIPER_RADIUS,
+        sniper_radius,
         ProjectileKind.SNIPER
     )
     sniper_timer += maxf(0.15, sniper_cooldown)
@@ -584,8 +587,9 @@ func _update_projectiles(delta: float) -> void:
             continue
 
         var radius := projectile_radii[projectile_index]
-        var min_point := Vector2(minf(start.x, finish.x), minf(start.y, finish.y)) - Vector2.ONE * 50.0
-        var max_point := Vector2(maxf(start.x, finish.x), maxf(start.y, finish.y)) + Vector2.ONE * 50.0
+        var collision_padding := radius + GameConfig.BOSS_RADIUS
+        var min_point := Vector2(minf(start.x, finish.x), minf(start.y, finish.y)) - Vector2.ONE * collision_padding
+        var max_point := Vector2(maxf(start.x, finish.x), maxf(start.y, finish.y)) + Vector2.ONE * collision_padding
         var min_cell := _grid_cell(min_point)
         var max_cell := _grid_cell(max_point)
         projectile_candidate_targets.clear()
@@ -729,7 +733,7 @@ func _update_spawning(delta: float) -> void:
     threat_check_timer -= delta
     if threat_check_timer <= 0.0:
         threat_check_timer = 0.20
-        nearby_threat = _count_nearby_normals(GameConfig.NEARBY_THREAT_RADIUS)
+        nearby_threat = _count_nearby_normals(GameConfig.NEARBY_THREAT_RADIUS * _camera_view_scale())
 
     if surge_active:
         surge_time += delta
@@ -776,7 +780,8 @@ func _spawn_normal_enemy() -> void:
     var angle := rng.randf_range(0.0, TAU)
     if player_move_direction.length_squared() > 0.1 and rng.randf() < 0.20:
         angle = player_move_direction.angle() + rng.randf_range(-0.55, 0.55)
-    var distance := rng.randf_range(760.0, 1040.0)
+    var view_scale := _camera_view_scale()
+    var distance := rng.randf_range(760.0 * view_scale, 1040.0 * view_scale)
     var minutes := elapsed_time / 60.0
     var damage_scale := 1.0 + 0.10 * minutes + 0.020 * minutes * minutes
     _add_enemy(
@@ -793,8 +798,7 @@ func _spawn_normal_enemy() -> void:
 
 func _current_normal_speed_scale() -> float:
     var minutes := elapsed_time / 60.0
-    return minf(
-        GameConfig.NORMAL_ENEMY_SPEED_SCALE_CAP,
+    return (
         1.0
         + GameConfig.NORMAL_ENEMY_SPEED_SCALE_PER_MINUTE * minutes
         + GameConfig.NORMAL_ENEMY_SPEED_SCALE_QUADRATIC * minutes * minutes
@@ -803,22 +807,19 @@ func _current_normal_speed_scale() -> float:
 
 func _current_boss_speed_scale() -> float:
     var minutes := elapsed_time / 60.0
-    return minf(
-        GameConfig.BOSS_SPEED_SCALE_CAP,
-        1.0 + GameConfig.BOSS_SPEED_SCALE_PER_MINUTE * minutes
-    )
+    return 1.0 + GameConfig.BOSS_SPEED_SCALE_PER_MINUTE * minutes
 
 
 func _surge_speed_multiplier(distance_to_player: float) -> float:
     if not surge_active:
         return 1.0
     var ramp := minf(1.0, surge_time / GameConfig.SURGE_RAMP_TIME)
-    var fade_distance := maxf(
-        1.0,
-        GameConfig.SURGE_SPEED_FULL_DISTANCE - GameConfig.SURGE_SPEED_FADE_START
-    )
+    var view_scale := _camera_view_scale()
+    var fade_start := GameConfig.SURGE_SPEED_FADE_START * view_scale
+    var full_distance := GameConfig.SURGE_SPEED_FULL_DISTANCE * view_scale
+    var fade_distance := maxf(1.0, full_distance - fade_start)
     var distance_factor := clampf(
-        (distance_to_player - GameConfig.SURGE_SPEED_FADE_START) / fade_distance,
+        (distance_to_player - fade_start) / fade_distance,
         0.0,
         1.0
     )
@@ -827,7 +828,8 @@ func _surge_speed_multiplier(distance_to_player: float) -> float:
 
 func _spawn_boss() -> void:
     var angle := rng.randf_range(0.0, TAU)
-    var distance := rng.randf_range(1050.0, 1450.0)
+    var view_scale := _camera_view_scale()
+    var distance := rng.randf_range(1050.0 * view_scale, 1450.0 * view_scale)
     var position := player_position + Vector2.from_angle(angle) * distance
     var minutes := elapsed_time / 60.0
     var damage_scale := 1.0 + 0.14 * minutes + 0.025 * minutes * minutes
@@ -939,6 +941,7 @@ func apply_upgrade(upgrade_id: String) -> void:
                 weapon_damage *= 1.20
             "move_speed":
                 player_move_speed *= 1.10
+                _update_camera_zoom()
             "max_health":
                 var gained := player_max_health * 0.15
                 player_max_health += gained
@@ -963,6 +966,8 @@ func apply_upgrade(upgrade_id: String) -> void:
             "sniper_range":
                 sniper_range *= 1.12
                 sniper_lifetime *= 1.12
+            "sniper_size":
+                sniper_radius *= GameConfig.SNIPER_SIZE_UPGRADE_MULTIPLIER
             "aura_fire_rate":
                 aura_cooldown = maxf(0.35, aura_cooldown * 0.90)
             "aura_radius":
@@ -1088,6 +1093,15 @@ func _golomb(index: int) -> int:
         var previous := golomb_cache[n - 1]
         golomb_cache.append(1 + golomb_cache[n - golomb_cache[previous]])
     return golomb_cache[index]
+
+
+func _camera_view_scale() -> float:
+    return maxf(1.0, player_move_speed / GameConfig.PLAYER_MOVE_SPEED)
+
+
+func _update_camera_zoom() -> void:
+    var zoom_value := 1.0 / _camera_view_scale()
+    camera.zoom = Vector2.ONE * zoom_value
 
 
 func toggle_targeting_mode() -> void:
@@ -1354,7 +1368,9 @@ func get_stats_snapshot() -> Dictionary:
         "projectile_count": weapon_projectile_count,
         "pierce": weapon_pierce,
         "needle_range": weapon_range,
+        "sniper_radius": sniper_radius,
         "move_speed": player_move_speed,
+        "camera_zoom": camera.zoom.x,
         "surge": surge_active,
         "fps": Engine.get_frames_per_second(),
     }
@@ -1400,11 +1416,16 @@ func _make_circle_texture(size: int) -> Texture2D:
     return ImageTexture.create_from_image(image)
 
 
+func _projectile_visual_scale(radius: float) -> float:
+    var maximum_projectile_radius := maxf(GameConfig.NEEDLE_RADIUS, GameConfig.SNIPER_RADIUS)
+    return (radius * 2.0 + 4.0) / (maximum_projectile_radius * 2.0 + 4.0)
+
+
 func _update_render_batches() -> void:
     if normal_enemy_multimesh == null or projectile_multimesh == null:
         return
 
-    var visible_half := GameConfig.VIEW_SIZE * 0.62
+    var visible_half := GameConfig.VIEW_SIZE * 0.62 * _camera_view_scale()
     var enemy_half := visible_half + Vector2(100.0, 100.0)
     var normal_count := 0
     for i in range(enemy_positions.size()):
@@ -1421,7 +1442,12 @@ func _update_render_batches() -> void:
         var position := projectile_positions[projectile_index]
         if not _is_near_view(position, projectile_half):
             continue
-        projectile_multimesh.set_instance_transform_2d(projectile_count, Transform2D(0.0, position))
+        var visual_scale := _projectile_visual_scale(projectile_radii[projectile_index])
+        var projectile_transform := Transform2D.IDENTITY
+        projectile_transform.x *= visual_scale
+        projectile_transform.y *= visual_scale
+        projectile_transform.origin = position
+        projectile_multimesh.set_instance_transform_2d(projectile_count, projectile_transform)
         var projectile_color := Color(0.55, 0.95, 1.0, 1.0)
         if projectile_kinds[projectile_index] == ProjectileKind.SNIPER:
             projectile_color = Color(1.0, 0.78, 0.22, 1.0)
@@ -1433,7 +1459,7 @@ func _update_render_batches() -> void:
 func _draw() -> void:
     _draw_background_grid()
 
-    var visible_half := GameConfig.VIEW_SIZE * 0.62
+    var visible_half := GameConfig.VIEW_SIZE * 0.62 * _camera_view_scale()
     for field_index in range(field_positions.size()):
         var field_position := field_positions[field_index]
         if not _is_near_view(field_position, visible_half + Vector2(180.0, 180.0)):
@@ -1507,7 +1533,7 @@ func _draw() -> void:
 
 
 func _draw_background_grid() -> void:
-    var half := GameConfig.VIEW_SIZE * 0.70
+    var half := GameConfig.VIEW_SIZE * 0.70 * _camera_view_scale()
     var bounds := Rect2(player_position - half, half * 2.0)
     draw_rect(bounds, Color(0.025, 0.035, 0.055, 1.0), true)
     var spacing := 96.0

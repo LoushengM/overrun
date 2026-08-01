@@ -18,6 +18,7 @@ func _run() -> void:
     _test_projectile_damage_conservation(world)
     _test_damage_pity(world)
     _test_player_invulnerability(world)
+    _test_speed_upgrade_camera_zoom(world)
     _test_enemy_speed_scaling(world)
     _test_boss_scaling_and_protection(world)
     _test_weapon_slots_and_boss_rewards(scene, world, hud)
@@ -131,6 +132,23 @@ func _test_player_invulnerability(world: SimulationWorld) -> void:
     assert(is_equal_approx(world.player_health, 80.0), "Damage must resume after invulnerability expires")
 
 
+func _test_speed_upgrade_camera_zoom(world: SimulationWorld) -> void:
+    world.reset_run()
+    _clear_combat_state(world)
+    var old_speed := world.player_move_speed
+    var old_zoom := world.camera.zoom.x
+    world.pending_upgrade = true
+    world.apply_upgrade("move_speed")
+    assert(is_equal_approx(world.player_move_speed, old_speed * 1.10), "Move speed upgrades must still add 10% speed")
+    assert(is_equal_approx(world.camera.zoom.x, old_zoom / 1.10), "Camera zoom must decrease by the same multiplier as movement speed increases")
+    assert(is_equal_approx(world._camera_view_scale(), 1.10), "Camera view scale must track the player speed multiplier")
+
+    world._spawn_normal_enemy()
+    var spawn_distance := world.enemy_positions[0].distance_to(world.player_position)
+    assert(spawn_distance >= 760.0 * 1.10 - 0.01, "Zoomed-out normal enemies must still spawn outside the enlarged viewport")
+    assert(spawn_distance <= 1040.0 * 1.10 + 0.01, "Zoom-scaled normal spawn distance must retain its upper bound")
+
+
 func _test_enemy_speed_scaling(world: SimulationWorld) -> void:
     _clear_combat_state(world)
     world.player_position = Vector2.ZERO
@@ -155,6 +173,10 @@ func _test_enemy_speed_scaling(world: SimulationWorld) -> void:
     world.enemy_positions[0] = Vector2(400.0, 0.0)
     world._update_enemies(0.50)
     assert(is_equal_approx(world.enemy_positions[0].x, 350.0), "Surge speed must fade out near the player")
+
+    world.elapsed_time = 1800.0
+    assert(world._current_normal_speed_scale() > 2.25, "Normal enemy speed scaling must continue beyond the former cap")
+    assert(world._current_boss_speed_scale() > 1.50, "Boss speed scaling must continue beyond the former cap")
 
 
 func _test_boss_scaling_and_protection(world: SimulationWorld) -> void:
@@ -284,6 +306,21 @@ func _test_weapon_firing_rules(world: SimulationWorld) -> void:
     assert(world.projectile_positions.size() == 1, "Longshot must fire at distant targets")
     assert(world.projectile_kinds[0] == SimulationWorld.ProjectileKind.SNIPER, "Longshot must create Sniper projectiles")
     assert(is_equal_approx(world.projectile_remaining_damage[0], GameConfig.SNIPER_DAMAGE), "Longshot must use its stronger base damage")
+
+    _clear_combat_state(world)
+    world.owned_weapons.assign(["needle", "sniper"])
+    var old_sniper_radius := world.sniper_radius
+    world.pending_upgrade = true
+    world.apply_upgrade("sniper_size")
+    assert(is_equal_approx(world.sniper_radius, old_sniper_radius * GameConfig.SNIPER_SIZE_UPGRADE_MULTIPLIER), "Longshot size upgrades must enlarge its projectile radius")
+    world._add_enemy(Vector2(1800.0, 0.0), 1000.0, 0.0, 0.0, 14.0, 0, SimulationWorld.EnemyKind.NORMAL, Vector2.ZERO)
+    world.sniper_timer = 0.0
+    world._update_sniper(0.0)
+    assert(is_equal_approx(world.projectile_radii[0], world.sniper_radius), "Longshot must spawn with its upgraded collision radius")
+    assert(world._projectile_visual_scale(world.sniper_radius) > 1.0, "Longshot size upgrades must enlarge the rendered projectile")
+    world.weapon_upgrade_levels["sniper_size"] = GameConfig.WEAPON_UPGRADE_CAPS["sniper_size"]
+    assert(not world._is_upgrade_eligible("sniper_size"), "Longshot size upgrades must disappear at their cap")
+    world.weapon_upgrade_levels["sniper_size"] = 1
 
     # Aura pierce repeats damage against every target in the same pulse.
     _clear_combat_state(world)

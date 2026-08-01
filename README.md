@@ -10,11 +10,12 @@ The repository intentionally favors a small playable loop over a content framewo
 - A four-slot weapon roster: Needle, Longshot, Aura Pulse, and Mire Field
 - An array-based enemy and projectile simulation with batched rendering
 - XP with three-choice paused level-ups and damage-scaling pity
-- Infinite global damage scaling plus distinct capped upgrade pools for every weapon
+- Infinite global damage scaling plus distinct capped upgrade pools for every weapon, including Longshot projectile size
 - Armor with diminishing returns and brief post-hit invulnerability frames
 - Regeneration only below 50% health after a damage delay
 - Persistent percentage-based health pickups
-- Endless health, damage, and movement scaling with anti-lull spawn-and-speed surges
+- Endless health, damage, and uncapped movement scaling with anti-lull spawn-and-speed surges
+- Proportional camera zoom-out whenever player movement speed increases
 - Fast-scaling persistent bosses with telegraphed attacks, burst protection, and weapon-only rewards that can unlock open weapon slots
 - A minimap that always marks bosses
 - Death summary and one-input restart

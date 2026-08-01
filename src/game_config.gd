@@ -51,6 +51,7 @@ const SNIPER_LIFETIME := 1.80
 const SNIPER_RANGE := 2200.0
 const SNIPER_RADIUS := 8.0
 const SNIPER_PIERCE := 0
+const SNIPER_SIZE_UPGRADE_MULTIPLIER := 1.15
 
 # Aura Pulse: fires only when something is in melee range. Pierce adds repeat
 # damage instances against every target caught by the same pulse.
@@ -85,7 +86,6 @@ const NORMAL_ENEMY_HEALTH := 10.0
 const NORMAL_ENEMY_SPEED := 85.0
 const NORMAL_ENEMY_SPEED_SCALE_PER_MINUTE := 0.05
 const NORMAL_ENEMY_SPEED_SCALE_QUADRATIC := 0.003
-const NORMAL_ENEMY_SPEED_SCALE_CAP := 2.25
 const NORMAL_ENEMY_DAMAGE := 10.0
 const NORMAL_ENEMY_RADIUS := 14.0
 const NORMAL_ENEMY_XP := 1
@@ -97,7 +97,6 @@ const BOSS_HIT_PROTECTION_DURATION := 0.35
 const BOSS_HIT_PROTECTION_DAMAGE_MULTIPLIER := 0.20
 const BOSS_SPEED := 58.0
 const BOSS_SPEED_SCALE_PER_MINUTE := 0.025
-const BOSS_SPEED_SCALE_CAP := 1.50
 const BOSS_DAMAGE := 28.0
 const BOSS_RADIUS := 42.0
 const BOSS_XP := 20
@@ -137,6 +136,7 @@ const SNIPER_UPGRADE_IDS := [
     "sniper_fire_rate",
     "sniper_pierce",
     "sniper_range",
+    "sniper_size",
 ]
 
 const AURA_UPGRADE_IDS := [
@@ -166,6 +166,7 @@ const WEAPON_UPGRADE_CAPS := {
     "sniper_fire_rate": 8,
     "sniper_pierce": 6,
     "sniper_range": 5,
+    "sniper_size": 6,
     "aura_fire_rate": 8,
     "aura_radius": 6,
     "aura_pierce": 6,
@@ -196,6 +197,7 @@ const UPGRADE_NAMES := {
     "sniper_fire_rate": "Longshot — Bolt Cycling",
     "sniper_pierce": "Longshot — Penetrator",
     "sniper_range": "Longshot — High-Power Optics",
+    "sniper_size": "Longshot — Heavy Caliber",
     "aura_fire_rate": "Aura Pulse — Quicker Pulse",
     "aura_radius": "Aura Pulse — Wider Wave",
     "aura_pierce": "Aura Pulse — Echoing Strike",
@@ -206,7 +208,7 @@ const UPGRADE_NAMES := {
 
 const UPGRADE_DESCRIPTIONS := {
     "damage": "+20% damage for all weapons",
-    "move_speed": "+10% movement speed",
+    "move_speed": "+10% movement speed and proportional camera zoom-out",
     "max_health": "+15% max health and heal the gain",
     "armor": "+10 armor",
     "regen": "+0.5% max health regeneration per second",
@@ -220,6 +222,7 @@ const UPGRADE_DESCRIPTIONS := {
     "sniper_fire_rate": "-10% Longshot cooldown",
     "sniper_pierce": "+1 full Longshot damage budget",
     "sniper_range": "+12% Longshot targeting and travel range",
+    "sniper_size": "+15% Longshot projectile size",
     "aura_fire_rate": "-10% Aura Pulse cooldown",
     "aura_radius": "+12% Aura Pulse radius",
     "aura_pierce": "+1 damage instance against every target in the pulse",

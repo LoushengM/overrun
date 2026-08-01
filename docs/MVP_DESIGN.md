@@ -138,6 +138,8 @@ Slow, strong standard projectile:
 | Projectile radius | 8 px |
 | Pierce | 0 |
 
+Longshot has a capped Heavy Caliber track that increases projectile radius by 15% per level for six levels. The larger projectile is both visually larger and uses the increased radius for collision.
+
 ### Aura Pulse
 
 A slow melee pulse that fires only when an enemy is inside its radius. Every pulse hits every target in range. Aura pierce adds another full damage instance against each target caught by that same pulse, so the same enemy may be hit repeatedly by one attack.
@@ -174,7 +176,7 @@ Behavior:
 
 - Move directly toward the player.
 - Use no navigation mesh or pathfinding.
-- Increase movement speed continuously with elapsed run time, including enemies already alive.
+- Increase movement speed continuously with elapsed run time, including enemies already alive, with no terminal speed cap.
 - During an anti-lull surge, apply an additional ramping movement multiplier to distant normal enemies; fade that multiplier out near the player.
 - Apply contact damage through the shared damage pipeline.
 - Respect a short contact-hit interval so overlap does not deal damage every frame.
@@ -221,7 +223,7 @@ Global upgrades remain eligible indefinitely:
 | Upgrade | Effect |
 |---|---|
 | Base damage | +20% damage for every weapon |
-| Move speed | +10% movement speed |
+| Move speed | +10% movement speed and zoom the camera out by the same multiplier |
 | Maximum health | +15% max health and heal the amount gained |
 | Armor | +10 armor |
 | Regeneration | +0.5% max health/s |
@@ -231,7 +233,7 @@ Each owned weapon contributes only its own uncapped choices to ordinary level-up
 | Weapon | Capped upgrade tracks |
 |---|---|
 | Needle | Fire rate 10, projectile count 10, pierce 10, range 5 |
-| Longshot | Fire rate 8, pierce 6, range 5 |
+| Longshot | Fire rate 8, pierce 6, range 5, projectile size 6 |
 | Aura Pulse | Fire rate 8, radius 6, repeat-hit pierce 6 |
 | Mire Field | Deployment rate 8, radius 6, duration 6 |
 
@@ -338,7 +340,7 @@ Time increases pressure through a small number of tunable curves:
 - Spawn attempts per second
 - Enemy health
 - Enemy damage
-- Enemy movement speed, with a conservative cap
+- Enemy movement speed, which continues scaling without a terminal cap
 - Elite frequency
 - Boss interval
 
