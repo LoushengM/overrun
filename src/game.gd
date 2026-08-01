@@ -11,6 +11,7 @@ func _ready() -> void:
     world.process_mode = Node.PROCESS_MODE_PAUSABLE
     world.stats_updated.connect(hud.update_stats)
     world.level_up_requested.connect(_on_level_up_requested)
+    world.boss_upgrade_requested.connect(_on_boss_upgrade_requested)
     world.run_ended.connect(_on_run_ended)
     world.boss_spawned.connect(hud.show_boss_notice)
     hud.upgrade_selected.connect(_on_upgrade_selected)
@@ -46,7 +47,16 @@ func _on_level_up_requested(options: Array[String]) -> void:
             world.apply_upgrade(options[0])
         return
     get_tree().paused = true
-    hud.show_upgrade(options)
+    hud.show_upgrade(options, "LEVEL UP", "Choose any eligible upgrade")
+
+
+func _on_boss_upgrade_requested(options: Array[String]) -> void:
+    if benchmark_mode:
+        if not options.is_empty():
+            world.apply_upgrade(options[0])
+        return
+    get_tree().paused = true
+    hud.show_upgrade(options, "BOSS REWARD", "Choose a Needle weapon upgrade")
 
 
 func _on_upgrade_selected(upgrade_id: String) -> void:

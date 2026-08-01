@@ -197,10 +197,10 @@ First-slice upgrade pool:
 
 | Upgrade | Effect |
 |---|---|
-| Damage | +20% weapon damage |
-| Fire rate | -12% weapon cooldown |
-| Projectile | +1 projectile per attack |
-| Pierce | +1 pierce |
+| Base damage | +20% damage for all weapons; uncapped |
+| Needle fire rate | -12% weapon cooldown; capped at 10 upgrades |
+| Needle projectile | +1 projectile per attack; capped at +10 |
+| Needle pierce | +1 full damage budget; capped at +10 |
 | Move speed | +10% movement speed |
 | Maximum health | +15% max health and heal the amount gained |
 
@@ -210,9 +210,10 @@ MVP additions after the first slice:
 |---|---|
 | Armor | +10 armor |
 | Regeneration | +0.5% max health/s |
-| Pickup radius | +25% pickup radius |
 
-New weapons will eventually be rarer choices. Do not build a general rarity framework for the first weapon. When a second weapon exists, introduce a small weighted pool and a pity rule that raises the chance of seeing a new weapon after several levels without one.
+Pickup radius remains a fixed player stat while health pickups are the only collectible. It should not appear in upgrade rolls unless the game later adds enough collectible objects to make the choice meaningful.
+
+Each weapon owns its own capped upgrade pool. Capped weapon upgrades disappear from future rolls. New weapons will eventually be rarer choices. Do not build a general rarity framework for the first weapon. When a second weapon exists, introduce a small weighted pool and a pity rule that raises the chance of seeing a new weapon after several levels without one.
 
 ## 11. Health, armor, regeneration, and healing
 
@@ -285,7 +286,10 @@ The first boss should:
 - Appear one to two screens away.
 - Persist if ignored.
 - Patrol or pursue within a broad region rather than following forever at any distance.
-- Award 20 XP and drop a health pickup.
+- Award 20 XP and queue a paused reward containing only eligible upgrades from the equipped weapon's pool.
+- Never drop a health pickup.
+- Scale health as `550 × (1 + minutes + 0.20 × minutes²)`.
+- After a full-damage hit, gain 0.35 seconds of 80% damage mitigation. This is resistance, not invulnerability, and raw projectile damage budget is still consumed.
 - Use one clearly telegraphed attack.
 - Remain marked on the minimap.
 

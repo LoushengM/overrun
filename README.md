@@ -10,12 +10,12 @@ The repository intentionally favors a small playable loop over a content framewo
 - One straight-line auto-targeting weapon, Needle
 - An array-based enemy and projectile simulation with batched rendering
 - XP with three-choice paused level-ups and damage-scaling pity
-- Damage, fire rate, projectile count, damage-budget pierce, movement, health, armor, regeneration, and pickup-radius upgrades
+- Infinite global damage scaling plus capped Needle fire-rate, projectile-count, and pierce upgrades
 - Armor with diminishing returns and brief post-hit invulnerability frames
 - Regeneration only below 50% health after a damage delay
 - Persistent percentage-based health pickups
 - Endless health, damage, and movement scaling with anti-lull spawn-and-speed surges
-- Persistent optional bosses with a telegraphed attack
+- Fast-scaling persistent bosses with telegraphed attacks, burst protection, and weapon-only rewards
 - A minimap that always marks bosses
 - Death summary and one-input restart
 - A headless 1,200-enemy stress mode

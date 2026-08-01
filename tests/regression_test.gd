@@ -129,6 +129,62 @@ func _run() -> void:
     world._update_enemies(0.50)
     assert(is_equal_approx(world.enemy_positions[0].x, 350.0), "Surge speed must fade out near the player")
 
+    world.elapsed_time = 300.0
+    assert(
+        is_equal_approx(world._current_boss_health(), 6050.0),
+        "Boss health must scale aggressively by five minutes"
+    )
+
+    _clear_combat_state(world)
+    world.elapsed_time = 0.0
+    world.player_position = Vector2.ZERO
+    world.weapon_damage = 100.0
+    world.weapon_pierce = 0
+    world._add_enemy(Vector2(100.0, 0.0), 1000.0, 0.0, 0.0, 42.0, 20, SimulationWorld.EnemyKind.BOSS, Vector2.ZERO)
+    world._spawn_projectile(Vector2.RIGHT)
+    world._rebuild_enemy_grid()
+    world._update_projectiles(0.10)
+    assert(is_equal_approx(world.hit_damage[0], 100.0), "The first boss hit must deal full damage")
+    assert(world.enemy_boss_hit_protection_timer[0] > 0.0, "The first boss hit must start hit protection")
+    world._resolve_hits()
+
+    world._spawn_projectile(Vector2.RIGHT)
+    world._rebuild_enemy_grid()
+    world._update_projectiles(0.10)
+    assert(is_equal_approx(world.hit_damage[0], 20.0), "Boss hit protection must mitigate 80% of follow-up damage")
+    world._resolve_hits()
+    assert(is_equal_approx(world.enemy_health[0], 880.0), "Boss health must reflect protected follow-up damage")
+
+    _clear_combat_state(world)
+    world.pending_upgrade = false
+    world.pending_boss_rewards = 0
+    world.xp = 0
+    world._add_enemy(Vector2.ZERO, 0.0, 0.0, 0.0, 42.0, 20, SimulationWorld.EnemyKind.BOSS, Vector2.ZERO)
+    world._process_deaths()
+    assert(world.pending_boss_rewards == 1, "A defeated boss must queue one weapon-upgrade reward")
+    assert(world.pickup_positions.is_empty(), "Bosses must not drop health pickups")
+
+    var boss_options := world._roll_weapon_upgrade_options()
+    assert(boss_options.size() == 3, "An uncapped Needle must offer three boss reward choices")
+    for boss_option in boss_options:
+        assert(GameConfig.NEEDLE_UPGRADE_IDS.has(boss_option), "Boss rewards must contain only Needle upgrades")
+
+    world.needle_upgrade_levels["projectile_count"] = GameConfig.NEEDLE_UPGRADE_CAPS["projectile_count"]
+    assert(not world._is_upgrade_eligible("projectile_count"), "Capped Needle upgrades must become ineligible")
+    assert(not world._roll_weapon_upgrade_options().has("projectile_count"), "Capped upgrades must disappear from boss rewards")
+    for roll_index in range(20):
+        assert(not world._roll_upgrade_options().has("pickup_radius"), "Pickup radius must not appear in level-up rolls")
+    world.needle_upgrade_levels["projectile_count"] = 0
+
+    world._check_boss_reward()
+    assert(paused, "A boss reward must pause the run")
+    assert(hud.upgrade_title.text == "BOSS REWARD", "Boss rewards must use a distinct upgrade title")
+    var boss_key_event := InputEventKey.new()
+    boss_key_event.keycode = KEY_1
+    boss_key_event.pressed = true
+    hud._input(boss_key_event)
+    assert(not paused, "Choosing a boss reward must resume the run")
+
     scene.queue_free()
     await process_frame
     print("REGRESSION_TEST_OK")
@@ -149,6 +205,7 @@ func _clear_combat_state(world: SimulationWorld) -> void:
     world.enemy_anchors.clear()
     world.enemy_boss_attack_timer.clear()
     world.enemy_boss_telegraph.clear()
+    world.enemy_boss_hit_protection_timer.clear()
     world.projectile_positions.clear()
     world.projectile_velocities.clear()
     world.projectile_lifetimes.clear()

@@ -14,6 +14,8 @@ var boss_notice: Label
 var minimap: BossMinimap
 
 var upgrade_overlay: ColorRect
+var upgrade_title: Label
+var upgrade_subtitle: Label
 var upgrade_buttons: Array[Button] = []
 var death_overlay: ColorRect
 var death_summary: Label
@@ -81,7 +83,13 @@ func update_stats(stats: Dictionary) -> void:
     surge_label.visible = stats.get("surge", false)
 
 
-func show_upgrade(options: Array[String]) -> void:
+func show_upgrade(
+    options: Array[String],
+    title_text: String = "LEVEL UP",
+    subtitle_text: String = "Click a choice or press 1, 2, or 3"
+) -> void:
+    upgrade_title.text = title_text
+    upgrade_subtitle.text = subtitle_text
     for i in range(upgrade_buttons.size()):
         var button := upgrade_buttons[i]
         if i < options.size():
@@ -250,18 +258,18 @@ func _build_upgrade_overlay() -> void:
     layout.add_theme_constant_override("separation", 14)
     panel.add_child(layout)
 
-    var title := Label.new()
-    title.text = "LEVEL UP"
-    title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-    title.add_theme_font_size_override("font_size", 34)
-    title.add_theme_color_override("font_color", Color(0.48, 0.92, 1.0))
-    layout.add_child(title)
+    upgrade_title = Label.new()
+    upgrade_title.text = "LEVEL UP"
+    upgrade_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+    upgrade_title.add_theme_font_size_override("font_size", 34)
+    upgrade_title.add_theme_color_override("font_color", Color(0.48, 0.92, 1.0))
+    layout.add_child(upgrade_title)
 
-    var subtitle := Label.new()
-    subtitle.text = "Click a choice or press 1, 2, or 3"
-    subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-    subtitle.add_theme_font_size_override("font_size", 18)
-    layout.add_child(subtitle)
+    upgrade_subtitle = Label.new()
+    upgrade_subtitle.text = "Click a choice or press 1, 2, or 3"
+    upgrade_subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+    upgrade_subtitle.add_theme_font_size_override("font_size", 18)
+    layout.add_child(upgrade_subtitle)
 
     for i in range(3):
         var button := Button.new()

@@ -42,6 +42,10 @@ const NORMAL_ENEMY_RADIUS := 14.0
 const NORMAL_ENEMY_XP := 1
 
 const BOSS_HEALTH := 550.0
+const BOSS_HEALTH_SCALE_LINEAR := 1.0
+const BOSS_HEALTH_SCALE_QUADRATIC := 0.20
+const BOSS_HIT_PROTECTION_DURATION := 0.35
+const BOSS_HIT_PROTECTION_DAMAGE_MULTIPLIER := 0.20
 const BOSS_SPEED := 58.0
 const BOSS_SPEED_SCALE_PER_MINUTE := 0.025
 const BOSS_SPEED_SCALE_CAP := 1.50
@@ -65,32 +69,39 @@ const SURGE_SPEED_FADE_START := 480.0
 const SURGE_SPEED_FULL_DISTANCE := 1600.0
 const NEARBY_THREAT_RADIUS := 2100.0
 
-const UPGRADE_IDS := [
+const GLOBAL_UPGRADE_IDS := [
     "damage",
-    "fire_rate",
-    "projectile_count",
-    "pierce",
     "move_speed",
     "max_health",
     "armor",
     "regen",
-    "pickup_radius",
 ]
 
+const NEEDLE_UPGRADE_IDS := [
+    "fire_rate",
+    "projectile_count",
+    "pierce",
+]
+
+const NEEDLE_UPGRADE_CAPS := {
+    "fire_rate": 10,
+    "projectile_count": 10,
+    "pierce": 10,
+}
+
 const UPGRADE_NAMES := {
-    "damage": "Sharpened Rounds",
-    "fire_rate": "Faster Cycling",
-    "projectile_count": "Split Shot",
-    "pierce": "Piercing Rounds",
+    "damage": "Base Damage",
+    "fire_rate": "Needle — Faster Cycling",
+    "projectile_count": "Needle — Split Shot",
+    "pierce": "Needle — Piercing Rounds",
     "move_speed": "Light Footing",
     "max_health": "Reinforced Core",
     "armor": "Plating",
     "regen": "Recovery",
-    "pickup_radius": "Field Magnet",
 }
 
 const UPGRADE_DESCRIPTIONS := {
-    "damage": "+20% weapon damage",
+    "damage": "+20% damage for all weapons",
     "fire_rate": "-12% weapon cooldown",
     "projectile_count": "+1 projectile per attack",
     "pierce": "Adds one full projectile damage budget",
@@ -98,5 +109,4 @@ const UPGRADE_DESCRIPTIONS := {
     "max_health": "+15% max health and heal the gain",
     "armor": "+10 armor",
     "regen": "+0.5% max health regeneration per second",
-    "pickup_radius": "+25% pickup radius",
 }

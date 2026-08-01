@@ -64,6 +64,7 @@ func _clear_combat_state(world: SimulationWorld) -> void:
     world.enemy_anchors.clear()
     world.enemy_boss_attack_timer.clear()
     world.enemy_boss_telegraph.clear()
+    world.enemy_boss_hit_protection_timer.clear()
     world.projectile_positions.clear()
     world.projectile_velocities.clear()
     world.projectile_lifetimes.clear()

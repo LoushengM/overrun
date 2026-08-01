@@ -3,6 +3,7 @@ extends Node2D
 
 signal stats_updated(stats: Dictionary)
 signal level_up_requested(options: Array[String])
+signal boss_upgrade_requested(options: Array[String])
 signal run_ended(summary: Dictionary)
 signal boss_spawned
 
@@ -14,6 +15,7 @@ var rng := RandomNumberGenerator.new()
 var benchmark_mode := false
 var is_running := false
 var pending_upgrade := false
+var pending_boss_rewards := 0
 
 var elapsed_time := 0.0
 var kills := 0
@@ -43,6 +45,11 @@ var weapon_lifetime := GameConfig.WEAPON_LIFETIME
 var weapon_range := GameConfig.WEAPON_RANGE
 var weapon_radius := GameConfig.WEAPON_RADIUS
 var weapon_pierce := GameConfig.WEAPON_PIERCE
+var needle_upgrade_levels := {
+    "fire_rate": 0,
+    "projectile_count": 0,
+    "pierce": 0,
+}
 var weapon_timer := 0.15
 var next_attack_id := 1
 
@@ -59,6 +66,7 @@ var enemy_reserved_damage: Array[float] = []
 var enemy_anchors: Array[Vector2] = []
 var enemy_boss_attack_timer: Array[float] = []
 var enemy_boss_telegraph: Array[float] = []
+var enemy_boss_hit_protection_timer: Array[float] = []
 
 var projectile_positions: Array[Vector2] = []
 var projectile_velocities: Array[Vector2] = []
@@ -114,6 +122,7 @@ func reset_run() -> void:
     enemy_anchors.clear()
     enemy_boss_attack_timer.clear()
     enemy_boss_telegraph.clear()
+    enemy_boss_hit_protection_timer.clear()
 
     projectile_positions.clear()
     projectile_velocities.clear()
@@ -132,6 +141,7 @@ func reset_run() -> void:
     benchmark_reported = false
     is_running = true
     pending_upgrade = false
+    pending_boss_rewards = 0
     elapsed_time = 0.0
     kills = 0
     level = 1
@@ -160,6 +170,9 @@ func reset_run() -> void:
     weapon_range = GameConfig.WEAPON_RANGE
     weapon_radius = GameConfig.WEAPON_RADIUS
     weapon_pierce = GameConfig.WEAPON_PIERCE
+    needle_upgrade_levels["fire_rate"] = 0
+    needle_upgrade_levels["projectile_count"] = 0
+    needle_upgrade_levels["pierce"] = 0
     weapon_timer = 0.15
     next_attack_id = 1
 
@@ -202,6 +215,7 @@ func enable_benchmark() -> void:
     enemy_anchors.clear()
     enemy_boss_attack_timer.clear()
     enemy_boss_telegraph.clear()
+    enemy_boss_hit_protection_timer.clear()
     for i in range(1200):
         var angle := rng.randf_range(0.0, TAU)
         var distance := rng.randf_range(380.0, 1800.0)
@@ -246,6 +260,7 @@ func _physics_process(delta: float) -> void:
     _update_regeneration(delta)
     _update_spawning(delta)
     _update_boss_schedule()
+    _check_boss_reward()
     _check_level_up()
 
     camera.position = player_position
@@ -285,6 +300,7 @@ func _update_enemies(delta: float) -> void:
         var distance_to_player := sqrt(distance_squared_to_player)
 
         if enemy_kinds[i] == EnemyKind.BOSS:
+            enemy_boss_hit_protection_timer[i] = maxf(0.0, enemy_boss_hit_protection_timer[i] - delta)
             var anchor := enemy_anchors[i]
             if player_position.distance_to(anchor) > 1600.0:
                 if position.distance_to(anchor) > 24.0:
@@ -414,10 +430,18 @@ func _update_projectiles(delta: float) -> void:
             if enemy_last_hit_attack[enemy_index] == projectile_attack_ids[projectile_index]:
                 continue
 
-            var damage_value := minf(
+            var damage_multiplier := 1.0
+            if enemy_kinds[enemy_index] == EnemyKind.BOSS:
+                if enemy_boss_hit_protection_timer[enemy_index] > 0.0:
+                    damage_multiplier = GameConfig.BOSS_HIT_PROTECTION_DAMAGE_MULTIPLIER
+                else:
+                    enemy_boss_hit_protection_timer[enemy_index] = GameConfig.BOSS_HIT_PROTECTION_DURATION
+
+            var raw_damage_spent := minf(
                 projectile_remaining_damage[projectile_index],
-                target_remaining_health
+                target_remaining_health / damage_multiplier
             )
+            var damage_value := raw_damage_spent * damage_multiplier
             if damage_value <= 0.0:
                 continue
 
@@ -425,7 +449,7 @@ func _update_projectiles(delta: float) -> void:
             hit_targets.append(enemy_index)
             hit_damage.append(damage_value)
             enemy_reserved_damage[enemy_index] += damage_value
-            projectile_remaining_damage[projectile_index] -= damage_value
+            projectile_remaining_damage[projectile_index] -= raw_damage_spent
 
             if projectile_remaining_damage[projectile_index] <= 0.0001:
                 exhausted = true
@@ -452,7 +476,7 @@ func _process_deaths() -> void:
         kills += 1
         xp += enemy_xp[i]
         if enemy_kinds[i] == EnemyKind.BOSS:
-            _spawn_health_pickup(enemy_positions[i])
+            pending_boss_rewards += 1
         elif pickup_positions.size() < GameConfig.PICKUP_CAP and rng.randf() < GameConfig.HEALTH_PICKUP_DROP_CHANCE:
             _spawn_health_pickup(enemy_positions[i])
         _remove_enemy(i)
@@ -583,11 +607,10 @@ func _spawn_boss() -> void:
     var distance := rng.randf_range(1050.0, 1450.0)
     var position := player_position + Vector2.from_angle(angle) * distance
     var minutes := elapsed_time / 60.0
-    var health_scale := 1.0 + 0.45 * minutes + 0.05 * minutes * minutes
     var damage_scale := 1.0 + 0.14 * minutes + 0.025 * minutes * minutes
     _add_enemy(
         position,
-        GameConfig.BOSS_HEALTH * health_scale,
+        _current_boss_health(),
         GameConfig.BOSS_SPEED,
         GameConfig.BOSS_DAMAGE * damage_scale,
         GameConfig.BOSS_RADIUS,
@@ -620,6 +643,7 @@ func _add_enemy(
     enemy_anchors.append(anchor_value)
     enemy_boss_attack_timer.append(rng.randf_range(1.5, 3.0) if kind_value == EnemyKind.BOSS else 0.0)
     enemy_boss_telegraph.append(0.0)
+    enemy_boss_hit_protection_timer.append(0.0)
 
 
 func _spawn_health_pickup(position: Vector2) -> void:
@@ -651,8 +675,21 @@ func _end_run() -> void:
         return
     is_running = false
     pending_upgrade = false
+    pending_boss_rewards = 0
     _emit_stats()
     run_ended.emit(get_stats_snapshot())
+
+
+func _check_boss_reward() -> void:
+    if pending_upgrade or not is_running or pending_boss_rewards <= 0:
+        return
+    var options := _roll_weapon_upgrade_options()
+    if options.is_empty():
+        pending_boss_rewards = 0
+        return
+    pending_boss_rewards -= 1
+    pending_upgrade = true
+    boss_upgrade_requested.emit(options)
 
 
 func _check_level_up() -> void:
@@ -668,17 +705,20 @@ func _check_level_up() -> void:
 
 
 func apply_upgrade(upgrade_id: String) -> void:
-    if not pending_upgrade:
+    if not pending_upgrade or not _is_upgrade_eligible(upgrade_id):
         return
     match upgrade_id:
         "damage":
             weapon_damage *= 1.20
         "fire_rate":
             weapon_cooldown = maxf(0.05, weapon_cooldown * 0.88)
+            needle_upgrade_levels[upgrade_id] += 1
         "projectile_count":
             weapon_projectile_count += 1
+            needle_upgrade_levels[upgrade_id] += 1
         "pierce":
             weapon_pierce += 1
+            needle_upgrade_levels[upgrade_id] += 1
         "move_speed":
             player_move_speed *= 1.10
         "max_health":
@@ -689,18 +729,29 @@ func apply_upgrade(upgrade_id: String) -> void:
             player_armor += 10.0
         "regen":
             player_regen_rate += 0.005
-        "pickup_radius":
-            player_pickup_radius *= 1.25
         _:
             return
     pending_upgrade = false
     _emit_stats()
 
 
+func _is_upgrade_eligible(upgrade_id: String) -> bool:
+    if GameConfig.GLOBAL_UPGRADE_IDS.has(upgrade_id):
+        return true
+    if not GameConfig.NEEDLE_UPGRADE_IDS.has(upgrade_id):
+        return false
+    var current_level: int = needle_upgrade_levels.get(upgrade_id, 0)
+    var level_cap: int = GameConfig.NEEDLE_UPGRADE_CAPS.get(upgrade_id, 0)
+    return current_level < level_cap
+
+
 func _roll_upgrade_options() -> Array[String]:
     var pool: Array[String] = []
-    for upgrade_id in GameConfig.UPGRADE_IDS:
+    for upgrade_id in GameConfig.GLOBAL_UPGRADE_IDS:
         pool.append(upgrade_id)
+    for upgrade_id in GameConfig.NEEDLE_UPGRADE_IDS:
+        if _is_upgrade_eligible(upgrade_id):
+            pool.append(upgrade_id)
 
     var options: Array[String] = []
     if _is_damage_pity_active():
@@ -713,10 +764,32 @@ func _roll_upgrade_options() -> Array[String]:
     return options
 
 
+func _roll_weapon_upgrade_options() -> Array[String]:
+    var pool: Array[String] = []
+    for upgrade_id in GameConfig.NEEDLE_UPGRADE_IDS:
+        if _is_upgrade_eligible(upgrade_id):
+            pool.append(upgrade_id)
+    pool.shuffle()
+    var options: Array[String] = []
+    while options.size() < 3 and not pool.is_empty():
+        options.append(pool.pop_back())
+    return options
+
+
 func _current_normal_enemy_health() -> float:
     var minutes := elapsed_time / 60.0
     var health_scale := 1.0 + 0.12 * minutes + 0.025 * minutes * minutes
     return GameConfig.NORMAL_ENEMY_HEALTH * health_scale
+
+
+func _current_boss_health() -> float:
+    var minutes := elapsed_time / 60.0
+    var health_scale := (
+        1.0
+        + GameConfig.BOSS_HEALTH_SCALE_LINEAR * minutes
+        + GameConfig.BOSS_HEALTH_SCALE_QUADRATIC * minutes * minutes
+    )
+    return GameConfig.BOSS_HEALTH * health_scale
 
 
 func _is_damage_pity_active() -> bool:
@@ -833,6 +906,7 @@ func _remove_enemy(index: int) -> void:
         enemy_anchors[index] = enemy_anchors[last]
         enemy_boss_attack_timer[index] = enemy_boss_attack_timer[last]
         enemy_boss_telegraph[index] = enemy_boss_telegraph[last]
+        enemy_boss_hit_protection_timer[index] = enemy_boss_hit_protection_timer[last]
     enemy_positions.pop_back()
     enemy_health.pop_back()
     enemy_max_health.pop_back()
@@ -846,6 +920,7 @@ func _remove_enemy(index: int) -> void:
     enemy_anchors.pop_back()
     enemy_boss_attack_timer.pop_back()
     enemy_boss_telegraph.pop_back()
+    enemy_boss_hit_protection_timer.pop_back()
 
 
 func _remove_projectile(index: int) -> void:
@@ -1009,6 +1084,21 @@ func _draw() -> void:
             draw_circle(position, enemy_radii[i] + 7.0, Color(0.22, 0.02, 0.08, 0.95))
             draw_circle(position, enemy_radii[i], Color(0.88, 0.12, 0.26, 1.0))
             draw_circle(position, 15.0, Color(1.0, 0.62, 0.2, 1.0))
+            if enemy_boss_hit_protection_timer[i] > 0.0:
+                var protection_fraction := clampf(
+                    enemy_boss_hit_protection_timer[i] / GameConfig.BOSS_HIT_PROTECTION_DURATION,
+                    0.0,
+                    1.0
+                )
+                draw_arc(
+                    position,
+                    enemy_radii[i] + 12.0,
+                    0.0,
+                    TAU,
+                    48,
+                    Color(1.0, 0.72, 0.18, 0.35 + 0.65 * protection_fraction),
+                    5.0
+                )
             var health_fraction := clampf(enemy_health[i] / enemy_max_health[i], 0.0, 1.0)
             draw_rect(Rect2(position + Vector2(-48.0, -58.0), Vector2(96.0, 7.0)), Color(0.08, 0.08, 0.10, 0.9), true)
             draw_rect(Rect2(position + Vector2(-48.0, -58.0), Vector2(96.0 * health_fraction, 7.0)), Color(0.95, 0.22, 0.28, 1.0), true)
