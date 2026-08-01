@@ -1199,10 +1199,8 @@ func _find_nearest_enemy(origin: Vector2, max_range: float) -> int:
 func _find_strongest_enemy(origin: Vector2, max_range: float) -> int:
     var best_index := -1
     var best_is_boss := false
-    var best_max_health := -1.0
-    var best_current_health := -1.0
-    var best_distance_squared := INF
     var max_range_squared := max_range * max_range
+    var best_distance_squared := max_range_squared
 
     for i in range(enemy_positions.size()):
         if enemy_health[i] <= 0.0:
@@ -1212,23 +1210,12 @@ func _find_strongest_enemy(origin: Vector2, max_range: float) -> int:
             continue
 
         var is_boss := enemy_kinds[i] == EnemyKind.BOSS
-        var should_replace := best_index < 0
-        if not should_replace and is_boss != best_is_boss:
-            should_replace = is_boss
-        elif not should_replace and is_boss == best_is_boss:
-            if enemy_max_health[i] > best_max_health + 0.001:
-                should_replace = true
-            elif is_equal_approx(enemy_max_health[i], best_max_health):
-                if enemy_health[i] > best_current_health + 0.001:
-                    should_replace = true
-                elif is_equal_approx(enemy_health[i], best_current_health) and distance_squared < best_distance_squared:
-                    should_replace = true
-
-        if should_replace:
+        if best_index < 0 or (is_boss and not best_is_boss):
             best_index = i
             best_is_boss = is_boss
-            best_max_health = enemy_max_health[i]
-            best_current_health = enemy_health[i]
+            best_distance_squared = distance_squared
+        elif is_boss == best_is_boss and distance_squared < best_distance_squared:
+            best_index = i
             best_distance_squared = distance_squared
 
     return best_index

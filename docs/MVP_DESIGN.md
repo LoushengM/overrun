@@ -107,7 +107,7 @@ Future characters may vary these baseline values, starting weapon, movement beha
 
 The player has **four permanent weapon slots**. Needle starts in the first slot. Boss rewards may unlock Longshot, Aura Pulse, or Mire Field while a slot remains. Once four weapons are equipped, new-weapon choices disappear.
 
-Weapons only auto-fire when a valid enemy is inside their own range, except Mire Field, which deliberately deploys around the player without needing a target. Press `T` to toggle directional weapons between **Closest** and **Strongest** targeting. Strongest targeting prioritizes bosses, then maximum health, current health, and finally distance. Area weapons continue to affect every enemy in their radius.
+Weapons only auto-fire when a valid enemy is inside their own range, except Mire Field, which deliberately deploys around the player without needing a target. Press `T` to toggle directional weapons between **Closest** and **Strongest** targeting. Strongest targeting selects the closest boss in range; when no boss is valid, it falls back to the closest normal enemy. Area weapons continue to affect every enemy in their radius.
 
 ### Needle
 

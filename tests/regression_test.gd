@@ -326,7 +326,8 @@ func _test_targeting_modes(scene: Node, world: SimulationWorld, hud: GameHud) ->
     world.targeting_mode = SimulationWorld.TargetingMode.CLOSEST
 
     world._add_enemy(Vector2(100.0, 0.0), 100.0, 0.0, 0.0, 14.0, 0, SimulationWorld.EnemyKind.NORMAL, Vector2.ZERO)
-    world._add_enemy(Vector2(0.0, 600.0), 1000.0, 0.0, 0.0, 42.0, 20, SimulationWorld.EnemyKind.BOSS, Vector2.ZERO)
+    world._add_enemy(Vector2(0.0, 600.0), 5000.0, 0.0, 0.0, 42.0, 20, SimulationWorld.EnemyKind.BOSS, Vector2.ZERO)
+    world._add_enemy(Vector2(300.0, 0.0), 1000.0, 0.0, 0.0, 42.0, 20, SimulationWorld.EnemyKind.BOSS, Vector2.ZERO)
     assert(world._find_target_enemy(Vector2.ZERO, GameConfig.NEEDLE_RANGE) == 0, "Closest targeting must choose the nearby normal enemy")
 
     var toggle_event := InputEventKey.new()
@@ -334,13 +335,18 @@ func _test_targeting_modes(scene: Node, world: SimulationWorld, hud: GameHud) ->
     toggle_event.pressed = true
     scene.call("_unhandled_input", toggle_event)
     assert(world.targeting_mode == SimulationWorld.TargetingMode.STRONGEST, "T must toggle targeting to Strongest")
-    assert(world._find_target_enemy(Vector2.ZERO, GameConfig.NEEDLE_RANGE) == 1, "Strongest targeting must prioritize an in-range boss")
+    assert(world._find_target_enemy(Vector2.ZERO, GameConfig.NEEDLE_RANGE) == 2, "Strongest targeting must prioritize the closest in-range boss")
     assert(hud.stats_label.text.contains("TARGET STRONGEST"), "The HUD must show the active targeting mode")
 
     world.needle_timer = 0.0
     world._update_needle(0.0)
     assert(world.projectile_positions.size() == 1, "Needle must fire in Strongest mode")
-    assert(world.projectile_velocities[0].y > 0.0 and absf(world.projectile_velocities[0].x) < 0.001, "Strongest Needle fire must aim at the boss instead of the closer normal enemy")
+    assert(world.projectile_velocities[0].x > 0.0 and absf(world.projectile_velocities[0].y) < 0.001, "Strongest Needle fire must aim at the closest boss instead of the farther stronger boss")
+
+    _clear_combat_state(world)
+    world._add_enemy(Vector2(500.0, 0.0), 5000.0, 0.0, 0.0, 14.0, 0, SimulationWorld.EnemyKind.NORMAL, Vector2.ZERO)
+    world._add_enemy(Vector2(150.0, 0.0), 100.0, 0.0, 0.0, 14.0, 0, SimulationWorld.EnemyKind.NORMAL, Vector2.ZERO)
+    assert(world._find_target_enemy(Vector2.ZERO, GameConfig.NEEDLE_RANGE) == 1, "Strongest targeting must fall back to the closest normal enemy when no boss is valid")
 
     scene.call("_unhandled_input", toggle_event)
     assert(world.targeting_mode == SimulationWorld.TargetingMode.CLOSEST, "T must toggle targeting back to Closest")
