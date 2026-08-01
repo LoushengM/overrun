@@ -2,39 +2,88 @@
 
 **Overrun** is a working title for a fast, endless bullet-heaven game built for short sessions. Move, auto-fire, gain XP, choose upgrades, and survive until the run collapses.
 
-The current repository is intentionally small. The first goal is a playable combat loop, not a content framework, online service, or generalized engine.
+The repository intentionally favors a small playable loop over a content framework or generalized engine.
 
-## MVP target
+## Current demo
 
-- One playable character
-- One basic enemy that chases the player
-- One weapon that fires a straight projectile at the nearest target
-- XP and three-choice level-ups
-- Damage, projectile count, pierce, fire-rate, movement, and defensive upgrades
-- Health, armor, capped regeneration, and percentage-based health pickups
-- Endless spawning with anti-lull acceleration and a hard entity cap
-- One optional persistent boss and a minimap boss marker
-- Death, run summary, and immediate restart
+- One playable character, Runner
+- One straight-line auto-targeting weapon, Needle
+- A pooled array-based enemy and projectile simulation
+- XP with three-choice paused level-ups
+- Damage, fire rate, projectile count, pierce, movement, health, armor, regeneration, and pickup-radius upgrades
+- Armor with diminishing returns
+- Regeneration only below 50% health after a damage delay
+- Persistent percentage-based health pickups
+- Endless time scaling and anti-lull spawn surges
+- Persistent optional bosses with a telegraphed attack
+- A minimap that always marks bosses
+- Death summary and one-input restart
+- A headless 1,200-enemy stress mode
 
-The detailed design is in [`docs/MVP_DESIGN.md`](docs/MVP_DESIGN.md).
+The detailed design remains in [`docs/MVP_DESIGN.md`](docs/MVP_DESIGN.md).
 
-## Technical direction
+## Controls
 
-- Godot 4
-- GDScript for the first playable build
-- Fixed-step, data-oriented combat simulation
-- Batched rendering for large enemy and projectile counts
-- No online backend for the MVP
-- Multiplayer is a later host-authoritative experiment, not an MVP dependency
+- Move: `WASD` or arrow keys
+- Choose upgrades: mouse
+- Restart after death: `R`, `Enter`, or the restart button
+- Quit: `Escape`
 
-## Repository principles
+## Run from the editor
 
-1. Prefer the smallest implementation that proves the game feels good.
-2. Keep simulation, content data, and presentation separate.
-3. Profile before replacing simple code with specialized code.
-4. Avoid per-entity signals and deep inheritance in combat hot paths.
-5. Make one focused change per pull request.
+Open the repository with Godot 4.7.1 and run the main scene.
 
-## Status
+From a terminal with Godot available:
 
-Design and scaffolding only.
+```bash
+godot --path .
+```
+
+The local development setup used for this build places Godot at:
+
+```text
+.tools/godot/Godot_v4.7.1-stable_linux.x86_64
+```
+
+That directory is ignored by Git.
+
+## Test
+
+Set `GODOT_BIN` when Godot is not on `PATH`:
+
+```bash
+GODOT_BIN=/path/to/godot ./scripts/test.sh
+```
+
+The test command imports the project, checks the XP curve, and runs a ten-second 1,200-enemy headless benchmark.
+
+## Package Windows build
+
+Install the matching Godot export templates, then run:
+
+```bash
+GODOT_BIN=/path/to/godot ./scripts/package.sh
+```
+
+The packaged executable is written to `dist/Overrun.exe` with its resource pack embedded.
+
+## Code map
+
+```text
+src/game.gd                 run coordination and pause/restart flow
+src/game_config.gd          tuning and upgrade text
+src/simulation_world.gd     simulation, combat, spawning, health, XP
+src/hud.gd                  HUD and modal interfaces
+src/minimap.gd              boss and emergency pickup radar
+scenes/main.tscn            minimal scene composition
+```
+
+The simulation uses no node per enemy and no signal per hit. Large populations live in compact parallel arrays, collision uses a uniform spatial grid, and presentation reads coarse state from the simulation.
+
+## Contribution rules
+
+- Keep the project runnable after each change.
+- Add abstractions only when a second concrete use exists.
+- Keep tuning in `game_config.gd` when practical.
+- Avoid per-entity nodes, signals, and allocation-heavy hot loops.
+- Run `scripts/test.sh` before committing.
