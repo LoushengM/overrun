@@ -35,6 +35,25 @@ func _process(delta: float) -> void:
         boss_notice.visible = false
 
 
+func _input(event: InputEvent) -> void:
+    if not upgrade_overlay.visible or not event is InputEventKey:
+        return
+    var key_event := event as InputEventKey
+    if not key_event.pressed or key_event.echo:
+        return
+    var option_index := -1
+    match key_event.keycode:
+        KEY_1, KEY_KP_1:
+            option_index = 0
+        KEY_2, KEY_KP_2:
+            option_index = 1
+        KEY_3, KEY_KP_3:
+            option_index = 2
+    if option_index >= 0 and option_index < upgrade_buttons.size() and upgrade_buttons[option_index].visible:
+        _on_upgrade_button_pressed(upgrade_buttons[option_index])
+        get_viewport().set_input_as_handled()
+
+
 func set_world(world: SimulationWorld) -> void:
     minimap.set_world(world)
 
@@ -69,7 +88,8 @@ func show_upgrade(options: Array[String]) -> void:
             var upgrade_id := options[i]
             button.visible = true
             button.set_meta("upgrade_id", upgrade_id)
-            button.text = "%s\n%s" % [
+            button.text = "[%d]  %s\n%s" % [
+                i + 1,
                 GameConfig.UPGRADE_NAMES.get(upgrade_id, upgrade_id),
                 GameConfig.UPGRADE_DESCRIPTIONS.get(upgrade_id, ""),
             ]
@@ -238,7 +258,7 @@ func _build_upgrade_overlay() -> void:
     layout.add_child(title)
 
     var subtitle := Label.new()
-    subtitle.text = "Choose one upgrade"
+    subtitle.text = "Click a choice or press 1, 2, or 3"
     subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
     subtitle.add_theme_font_size_override("font_size", 18)
     layout.add_child(subtitle)

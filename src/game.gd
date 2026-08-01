@@ -8,6 +8,7 @@ var benchmark_mode := false
 
 func _ready() -> void:
     process_mode = Node.PROCESS_MODE_ALWAYS
+    world.process_mode = Node.PROCESS_MODE_PAUSABLE
     world.stats_updated.connect(hud.update_stats)
     world.level_up_requested.connect(_on_level_up_requested)
     world.run_ended.connect(_on_run_ended)

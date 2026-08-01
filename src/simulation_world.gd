@@ -54,6 +54,7 @@ var enemy_radii: Array[float] = []
 var enemy_xp: Array[int] = []
 var enemy_kinds: Array[int] = []
 var enemy_last_hit_attack: Array[int] = []
+var enemy_reserved_damage: Array[float] = []
 var enemy_anchors: Array[Vector2] = []
 var enemy_boss_attack_timer: Array[float] = []
 var enemy_boss_telegraph: Array[float] = []
@@ -70,6 +71,11 @@ var pickup_positions: Array[Vector2] = []
 var hit_targets: Array[int] = []
 var hit_damage: Array[float] = []
 var enemy_grid: Dictionary = {}
+var grid_bucket_pool: Array = []
+
+var normal_enemy_multimesh: MultiMesh
+var projectile_multimesh: MultiMesh
+var circle_texture: Texture2D
 
 var spawn_accumulator := 0.0
 var nearby_threat := 0
@@ -85,8 +91,10 @@ var golomb_cache: Array[int] = [0, 1]
 
 
 func _ready() -> void:
+    process_mode = Node.PROCESS_MODE_PAUSABLE
     rng.randomize()
     camera.enabled = true
+    _setup_batched_rendering()
 
 
 func reset_run() -> void:
@@ -99,6 +107,7 @@ func reset_run() -> void:
     enemy_xp.clear()
     enemy_kinds.clear()
     enemy_last_hit_attack.clear()
+    enemy_reserved_damage.clear()
     enemy_anchors.clear()
     enemy_boss_attack_timer.clear()
     enemy_boss_telegraph.clear()
@@ -112,6 +121,7 @@ func reset_run() -> void:
     pickup_positions.clear()
     hit_targets.clear()
     hit_damage.clear()
+    _release_grid_buckets()
     enemy_grid.clear()
 
     benchmark_mode = false
@@ -162,6 +172,7 @@ func reset_run() -> void:
         _spawn_normal_enemy()
 
     _emit_stats()
+    _update_render_batches()
     queue_redraw()
 
 
@@ -182,6 +193,7 @@ func enable_benchmark() -> void:
     enemy_xp.clear()
     enemy_kinds.clear()
     enemy_last_hit_attack.clear()
+    enemy_reserved_damage.clear()
     enemy_anchors.clear()
     enemy_boss_attack_timer.clear()
     enemy_boss_telegraph.clear()
@@ -199,6 +211,7 @@ func enable_benchmark() -> void:
             Vector2.ZERO
         )
     _emit_stats()
+    _update_render_batches()
 
 
 func _physics_process(delta: float) -> void:
@@ -234,6 +247,7 @@ func _physics_process(delta: float) -> void:
     if stats_timer >= 0.10:
         stats_timer = 0.0
         _emit_stats()
+    _update_render_batches()
     queue_redraw()
 
 
@@ -260,7 +274,9 @@ func _update_enemies(delta: float) -> void:
     for i in range(enemy_positions.size()):
         var position := enemy_positions[i]
         var direction := Vector2.ZERO
-        var distance_to_player := position.distance_to(player_position)
+        var to_player := player_position - position
+        var distance_squared_to_player := to_player.length_squared()
+        var distance_to_player := sqrt(distance_squared_to_player)
 
         if enemy_kinds[i] == EnemyKind.BOSS:
             var anchor := enemy_anchors[i]
@@ -282,7 +298,8 @@ func _update_enemies(delta: float) -> void:
                     enemy_boss_telegraph[i] = 1.1
                     enemy_boss_attack_timer[i] = 4.5
         else:
-            direction = position.direction_to(player_position)
+            if distance_to_player > 0.001:
+                direction = to_player / distance_to_player
 
         enemy_positions[i] = position + direction * enemy_speeds[i] * delta
 
@@ -363,15 +380,17 @@ func _update_projectiles(delta: float) -> void:
                 var bucket: Array = bucket_value
                 for enemy_index_variant in bucket:
                     var enemy_index: int = enemy_index_variant
-                    if enemy_health[enemy_index] <= 0.0:
+                    if enemy_health[enemy_index] - enemy_reserved_damage[enemy_index] <= 0.0:
                         continue
                     if enemy_last_hit_attack[enemy_index] == projectile_attack_ids[projectile_index]:
                         continue
                     var collision_radius := radius + enemy_radii[enemy_index]
                     if _segment_hits_circle(start, finish, enemy_positions[enemy_index], collision_radius):
                         enemy_last_hit_attack[enemy_index] = projectile_attack_ids[projectile_index]
+                        var damage_value := projectile_damage[projectile_index]
                         hit_targets.append(enemy_index)
-                        hit_damage.append(projectile_damage[projectile_index])
+                        hit_damage.append(damage_value)
+                        enemy_reserved_damage[enemy_index] += damage_value
                         projectile_remaining_hits[projectile_index] -= 1
                         if projectile_remaining_hits[projectile_index] <= 0:
                             exhausted = true
@@ -390,9 +409,8 @@ func _resolve_hits() -> void:
         var target := hit_targets[i]
         if target < 0 or target >= enemy_health.size():
             continue
-        if enemy_health[target] <= 0.0:
-            continue
         enemy_health[target] -= hit_damage[i]
+        enemy_reserved_damage[target] = 0.0
 
 
 func _process_deaths() -> void:
@@ -453,13 +471,13 @@ func _update_spawning(delta: float) -> void:
 
     spawn_accumulator += base_rate * surge_multiplier * delta
     var spawned_this_tick := 0
-    while spawn_accumulator >= 1.0 and enemy_positions.size() < GameConfig.ENEMY_CAP and spawned_this_tick < 48:
+    while spawn_accumulator >= 1.0 and enemy_positions.size() < GameConfig.ENEMY_CAP and spawned_this_tick < GameConfig.MAX_SPAWNS_PER_TICK:
         _spawn_normal_enemy()
         spawn_accumulator -= 1.0
         spawned_this_tick += 1
 
-    if enemy_positions.size() >= GameConfig.ENEMY_CAP:
-        spawn_accumulator = minf(spawn_accumulator, base_rate * 2.0)
+    var max_spawn_debt := base_rate * surge_multiplier * GameConfig.MAX_SPAWN_DEBT_SECONDS
+    spawn_accumulator = minf(spawn_accumulator, max_spawn_debt)
 
 
 func _update_boss_schedule() -> void:
@@ -535,6 +553,7 @@ func _add_enemy(
     enemy_xp.append(xp_value)
     enemy_kinds.append(kind_value)
     enemy_last_hit_attack.append(0)
+    enemy_reserved_damage.append(0.0)
     enemy_anchors.append(anchor_value)
     enemy_boss_attack_timer.append(rng.randf_range(1.5, 3.0) if kind_value == EnemyKind.BOSS else 0.0)
     enemy_boss_telegraph.append(0.0)
@@ -659,16 +678,25 @@ func _count_nearby_normals(radius: float) -> int:
 
 
 func _rebuild_enemy_grid() -> void:
+    _release_grid_buckets()
     enemy_grid.clear()
     for i in range(enemy_positions.size()):
         var cell := _grid_cell(enemy_positions[i])
         var bucket_value: Variant = enemy_grid.get(cell, null)
         if bucket_value == null:
-            var new_bucket: Array[int] = [i]
+            var new_bucket: Array = grid_bucket_pool.pop_back() if not grid_bucket_pool.is_empty() else []
+            new_bucket.append(i)
             enemy_grid[cell] = new_bucket
         else:
             var bucket: Array = bucket_value
             bucket.append(i)
+
+
+func _release_grid_buckets() -> void:
+    for bucket_value in enemy_grid.values():
+        var bucket: Array = bucket_value
+        bucket.clear()
+        grid_bucket_pool.append(bucket)
 
 
 func _grid_cell(position: Vector2) -> Vector2i:
@@ -700,6 +728,7 @@ func _remove_enemy(index: int) -> void:
         enemy_xp[index] = enemy_xp[last]
         enemy_kinds[index] = enemy_kinds[last]
         enemy_last_hit_attack[index] = enemy_last_hit_attack[last]
+        enemy_reserved_damage[index] = enemy_reserved_damage[last]
         enemy_anchors[index] = enemy_anchors[last]
         enemy_boss_attack_timer[index] = enemy_boss_attack_timer[last]
         enemy_boss_telegraph[index] = enemy_boss_telegraph[last]
@@ -712,6 +741,7 @@ func _remove_enemy(index: int) -> void:
     enemy_xp.pop_back()
     enemy_kinds.pop_back()
     enemy_last_hit_attack.pop_back()
+    enemy_reserved_damage.pop_back()
     enemy_anchors.pop_back()
     enemy_boss_attack_timer.pop_back()
     enemy_boss_telegraph.pop_back()
@@ -798,6 +828,67 @@ func _emit_stats() -> void:
     stats_updated.emit(get_stats_snapshot())
 
 
+func _setup_batched_rendering() -> void:
+    circle_texture = _make_circle_texture(32)
+
+    normal_enemy_multimesh = MultiMesh.new()
+    normal_enemy_multimesh.transform_format = MultiMesh.TRANSFORM_2D
+    normal_enemy_multimesh.use_colors = true
+    normal_enemy_multimesh.instance_count = GameConfig.ENEMY_CAP
+    normal_enemy_multimesh.visible_instance_count = 0
+    var enemy_mesh := QuadMesh.new()
+    enemy_mesh.size = Vector2.ONE * (GameConfig.NORMAL_ENEMY_RADIUS * 2.0 + 4.0)
+    normal_enemy_multimesh.mesh = enemy_mesh
+
+    projectile_multimesh = MultiMesh.new()
+    projectile_multimesh.transform_format = MultiMesh.TRANSFORM_2D
+    projectile_multimesh.use_colors = true
+    projectile_multimesh.instance_count = GameConfig.PROJECTILE_CAP
+    projectile_multimesh.visible_instance_count = 0
+    var projectile_mesh := QuadMesh.new()
+    projectile_mesh.size = Vector2.ONE * (weapon_radius * 2.0 + 4.0)
+    projectile_multimesh.mesh = projectile_mesh
+
+
+func _make_circle_texture(size: int) -> Texture2D:
+    var image := Image.create(size, size, false, Image.FORMAT_RGBA8)
+    image.fill(Color.TRANSPARENT)
+    var center := Vector2(size - 1, size - 1) * 0.5
+    var radius_squared := pow(float(size) * 0.46, 2.0)
+    for y in range(size):
+        for x in range(size):
+            var offset := Vector2(x, y) - center
+            if offset.length_squared() <= radius_squared:
+                image.set_pixel(x, y, Color.WHITE)
+    return ImageTexture.create_from_image(image)
+
+
+func _update_render_batches() -> void:
+    if normal_enemy_multimesh == null or projectile_multimesh == null:
+        return
+
+    var visible_half := GameConfig.VIEW_SIZE * 0.62
+    var enemy_half := visible_half + Vector2(100.0, 100.0)
+    var normal_count := 0
+    for i in range(enemy_positions.size()):
+        if enemy_kinds[i] != EnemyKind.NORMAL or not _is_near_view(enemy_positions[i], enemy_half):
+            continue
+        normal_enemy_multimesh.set_instance_transform_2d(normal_count, Transform2D(0.0, enemy_positions[i]))
+        normal_enemy_multimesh.set_instance_color(normal_count, Color(0.92, 0.19, 0.25, 1.0))
+        normal_count += 1
+    normal_enemy_multimesh.visible_instance_count = normal_count
+
+    var projectile_half := visible_half + Vector2(80.0, 80.0)
+    var projectile_count := 0
+    for position in projectile_positions:
+        if not _is_near_view(position, projectile_half):
+            continue
+        projectile_multimesh.set_instance_transform_2d(projectile_count, Transform2D(0.0, position))
+        projectile_multimesh.set_instance_color(projectile_count, Color(0.55, 0.95, 1.0, 1.0))
+        projectile_count += 1
+    projectile_multimesh.visible_instance_count = projectile_count
+
+
 func _draw() -> void:
     _draw_background_grid()
 
@@ -807,6 +898,9 @@ func _draw() -> void:
             draw_circle(position, 11.0, Color(0.25, 0.95, 0.45, 0.95))
             draw_line(position + Vector2(-6.0, 0.0), position + Vector2(6.0, 0.0), Color.WHITE, 3.0)
             draw_line(position + Vector2(0.0, -6.0), position + Vector2(0.0, 6.0), Color.WHITE, 3.0)
+
+    if normal_enemy_multimesh != null and circle_texture != null:
+        draw_multimesh(normal_enemy_multimesh, circle_texture)
 
     for i in range(enemy_positions.size()):
         var position := enemy_positions[i]
@@ -824,13 +918,10 @@ func _draw() -> void:
                 draw_circle(position, 220.0, Color(1.0, 0.12, 0.08, pulse * 0.18))
                 draw_arc(position, 220.0, 0.0, TAU, 80, Color(1.0, 0.24, 0.12, pulse), 5.0)
         else:
-            draw_circle(position, enemy_radii[i] + 2.0, Color(0.24, 0.02, 0.05, 0.92))
-            draw_circle(position, enemy_radii[i], Color(0.92, 0.19, 0.25, 1.0))
+            continue
 
-    for position in projectile_positions:
-        if _is_near_view(position, visible_half + Vector2(80.0, 80.0)):
-            draw_circle(position, weapon_radius + 2.0, Color(0.15, 0.45, 0.55, 0.8))
-            draw_circle(position, weapon_radius, Color(0.55, 0.95, 1.0, 1.0))
+    if projectile_multimesh != null and circle_texture != null:
+        draw_multimesh(projectile_multimesh, circle_texture)
 
     draw_circle(player_position, GameConfig.PLAYER_RADIUS + 5.0, Color(0.03, 0.12, 0.18, 0.95))
     draw_circle(player_position, GameConfig.PLAYER_RADIUS, Color(0.20, 0.82, 1.0, 1.0))
