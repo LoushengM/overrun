@@ -156,6 +156,8 @@ Behavior:
 
 Suggested contact-hit interval: **0.5 seconds per source**. This can be simplified to a short player global contact cooldown in the first slice if that implementation is clearer.
 
+After any successful hit, grant the player **0.35 seconds of global invulnerability**. Contact and boss attacks both respect this window. Flash the player sprite during the window so blocked follow-up hits are readable.
+
 ## 9. XP and level curve
 
 Rewards:

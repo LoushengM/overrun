@@ -33,6 +33,7 @@ var player_regen_delay := GameConfig.PLAYER_REGEN_DELAY
 var player_pickup_radius := GameConfig.PLAYER_PICKUP_RADIUS
 var time_since_player_damage := 999.0
 var player_contact_cooldown := 0.0
+var player_invulnerability_timer := 0.0
 
 var weapon_damage := GameConfig.WEAPON_DAMAGE
 var weapon_cooldown := GameConfig.WEAPON_COOLDOWN
@@ -149,6 +150,7 @@ func reset_run() -> void:
     player_pickup_radius = GameConfig.PLAYER_PICKUP_RADIUS
     time_since_player_damage = 999.0
     player_contact_cooldown = 0.0
+    player_invulnerability_timer = 0.0
 
     weapon_damage = GameConfig.WEAPON_DAMAGE
     weapon_cooldown = GameConfig.WEAPON_COOLDOWN
@@ -225,6 +227,7 @@ func _physics_process(delta: float) -> void:
     elapsed_time += delta
     time_since_player_damage += delta
     player_contact_cooldown = maxf(0.0, player_contact_cooldown - delta)
+    player_invulnerability_timer = maxf(0.0, player_invulnerability_timer - delta)
     surge_cooldown = maxf(0.0, surge_cooldown - delta)
 
     _update_player(delta)
@@ -592,11 +595,14 @@ func _spawn_health_pickup(position: Vector2) -> void:
 func _apply_player_damage(raw_damage: float, ignores_contact_cooldown: bool) -> void:
     if not is_running or benchmark_mode:
         return
+    if player_invulnerability_timer > 0.0:
+        return
     if not ignores_contact_cooldown and player_contact_cooldown > 0.0:
         return
     var final_damage := raw_damage * 100.0 / (100.0 + player_armor)
     player_health -= final_damage
     time_since_player_damage = 0.0
+    player_invulnerability_timer = GameConfig.PLAYER_HIT_INVULNERABILITY
     if not ignores_contact_cooldown:
         player_contact_cooldown = GameConfig.CONTACT_DAMAGE_COOLDOWN
     if player_health <= 0.0:
@@ -980,8 +986,10 @@ func _draw() -> void:
     if projectile_multimesh != null and circle_texture != null:
         draw_multimesh(projectile_multimesh, circle_texture)
 
+    var player_flash := player_invulnerability_timer > 0.0 and int(Time.get_ticks_msec() / 55) % 2 == 0
+    var player_color := Color.WHITE if player_flash else Color(0.20, 0.82, 1.0, 1.0)
     draw_circle(player_position, GameConfig.PLAYER_RADIUS + 5.0, Color(0.03, 0.12, 0.18, 0.95))
-    draw_circle(player_position, GameConfig.PLAYER_RADIUS, Color(0.20, 0.82, 1.0, 1.0))
+    draw_circle(player_position, GameConfig.PLAYER_RADIUS, player_color)
     draw_circle(player_position, 6.0, Color.WHITE)
 
 

@@ -91,6 +91,20 @@ func _run() -> void:
     world.weapon_damage = 100.0
     assert(not world._is_damage_pity_active(), "Damage pity must turn off after damage catches up")
 
+    world.benchmark_mode = false
+    world.is_running = true
+    world.player_health = 100.0
+    world.player_armor = 0.0
+    world.player_invulnerability_timer = 0.0
+    world._apply_player_damage(10.0, true)
+    assert(is_equal_approx(world.player_health, 90.0), "The first hit must damage the player")
+    assert(world.player_invulnerability_timer > 0.0, "A hit must start player invulnerability frames")
+    world._apply_player_damage(10.0, true)
+    assert(is_equal_approx(world.player_health, 90.0), "Invulnerability frames must block immediate follow-up damage")
+    world.player_invulnerability_timer = 0.0
+    world._apply_player_damage(10.0, true)
+    assert(is_equal_approx(world.player_health, 80.0), "Damage must resume after invulnerability expires")
+
     scene.queue_free()
     await process_frame
     print("REGRESSION_TEST_OK")
