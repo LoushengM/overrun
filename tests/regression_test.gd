@@ -19,6 +19,7 @@ func _run() -> void:
     _test_pause_and_keyboard_selection(scene, world, hud)
     _test_projectile_damage_conservation(world)
     _test_damage_pity(world)
+    _test_upgrade_roll_weights(world)
     _test_player_invulnerability(world)
     _test_speed_upgrade_camera_zoom(world)
     _test_enemy_speed_scaling(world)
@@ -160,6 +161,27 @@ func _test_damage_pity(world: SimulationWorld) -> void:
 
     world.weapon_damage = 100.0
     assert(not world._is_damage_pity_active(), "Damage pity must turn off after damage catches up")
+
+
+func _test_upgrade_roll_weights(world: SimulationWorld) -> void:
+    var low_frequency_ids := ["needle_range", "sniper_range", "regen", "max_health", "armor"]
+    for upgrade_id in low_frequency_ids:
+        assert(
+            is_equal_approx(world._upgrade_roll_weight(upgrade_id), GameConfig.LOW_FREQUENCY_UPGRADE_WEIGHT),
+            "%s must use the shared low-frequency roll tier" % upgrade_id
+        )
+    assert(is_equal_approx(world._upgrade_roll_weight("damage"), 1.0), "Damage must retain normal roll weight")
+    assert(is_equal_approx(world._upgrade_roll_weight("move_speed"), 1.0), "Movement speed must retain normal roll weight")
+
+    world.rng.seed = 18071988
+    var low_frequency_count := 0
+    var sample_count := 5000
+    for sample_index in range(sample_count):
+        var pool: Array[String] = ["damage", "armor"]
+        if world._take_weighted_upgrade(pool) == "armor":
+            low_frequency_count += 1
+    assert(low_frequency_count > 600, "Low-frequency upgrades must remain possible")
+    assert(low_frequency_count < 1100, "Low-frequency upgrades must roll substantially less often than normal upgrades")
 
 
 func _test_player_invulnerability(world: SimulationWorld) -> void:
@@ -384,6 +406,7 @@ func _test_weapon_firing_rules(world: SimulationWorld) -> void:
     var old_sniper_radius := world.sniper_radius
     world.pending_upgrade = true
     world.apply_upgrade("sniper_size")
+    assert(is_equal_approx(GameConfig.SNIPER_SIZE_UPGRADE_MULTIPLIER, 1.45), "Heavy Caliber must increase Longshot radius by 45% per rank")
     assert(is_equal_approx(world.sniper_radius, old_sniper_radius * GameConfig.SNIPER_SIZE_UPGRADE_MULTIPLIER), "Longshot size upgrades must enlarge its projectile radius")
     world._add_enemy(Vector2(1800.0, 0.0), 1000.0, 0.0, 0.0, 14.0, 0, SimulationWorld.EnemyKind.NORMAL, Vector2.ZERO)
     world.sniper_timer = 0.0

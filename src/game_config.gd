@@ -54,7 +54,7 @@ const SNIPER_LIFETIME := 1.80
 const SNIPER_RANGE := 2200.0
 const SNIPER_RADIUS := 8.0
 const SNIPER_PIERCE := 0
-const SNIPER_SIZE_UPGRADE_MULTIPLIER := 1.15
+const SNIPER_SIZE_UPGRADE_MULTIPLIER := 1.45
 
 # Aura Pulse: fires only when something is in melee range. Echo upgrades add
 # delayed pulses that recheck which enemies are currently inside the radius.
@@ -128,6 +128,15 @@ const GLOBAL_UPGRADE_IDS := [
     "armor",
     "regen",
 ]
+
+const LOW_FREQUENCY_UPGRADE_WEIGHT := 0.20
+const UPGRADE_ROLL_WEIGHTS := {
+    "max_health": LOW_FREQUENCY_UPGRADE_WEIGHT,
+    "armor": LOW_FREQUENCY_UPGRADE_WEIGHT,
+    "regen": LOW_FREQUENCY_UPGRADE_WEIGHT,
+    "needle_range": LOW_FREQUENCY_UPGRADE_WEIGHT,
+    "sniper_range": LOW_FREQUENCY_UPGRADE_WEIGHT,
+}
 
 const NEEDLE_UPGRADE_IDS := [
     "needle_fire_rate",
@@ -226,7 +235,7 @@ const UPGRADE_DESCRIPTIONS := {
     "sniper_fire_rate": "-10% Longshot cooldown",
     "sniper_pierce": "+1 full Longshot damage budget",
     "sniper_range": "+12% Longshot targeting and travel range",
-    "sniper_size": "+15% Longshot projectile size",
+    "sniper_size": "+45% Longshot projectile size",
     "aura_fire_rate": "-10% Aura Pulse cooldown",
     "aura_radius": "+12% Aura Pulse radius",
     "aura_echoes": "+1 delayed pulse that rechecks enemies in range",

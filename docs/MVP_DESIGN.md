@@ -138,7 +138,7 @@ Slow, strong standard projectile:
 | Projectile radius | 8 px |
 | Pierce | 0 |
 
-Longshot has a capped Heavy Caliber track that increases projectile radius by 15% per level for six levels. The larger projectile is both visually larger and uses the increased radius for collision.
+Longshot has a capped Heavy Caliber track that increases projectile radius by 45% per level for six levels. The larger projectile is both visually larger and uses the increased radius for collision.
 
 ### Aura Pulse
 
@@ -230,7 +230,7 @@ Global upgrades remain eligible indefinitely:
 | Armor | +10 armor |
 | Regeneration | +0.5% max health/s |
 
-Each owned weapon contributes only its own uncapped choices to ordinary level-ups. Capped upgrades disappear from future rolls.
+Each owned weapon contributes only its own uncapped choices to ordinary level-ups. Capped upgrades disappear from future rolls. Armor, regeneration, maximum health, Needle range, and Longshot range share a low-frequency tier at 20% of normal upgrade weight; this weighting also applies to weapon-only boss rewards.
 
 | Weapon | Capped upgrade tracks |
 |---|---|

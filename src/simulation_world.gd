@@ -1083,6 +1083,28 @@ func _eligible_owned_weapon_upgrades() -> Array[String]:
     return result
 
 
+func _upgrade_roll_weight(upgrade_id: String) -> float:
+    return float(GameConfig.UPGRADE_ROLL_WEIGHTS.get(upgrade_id, 1.0))
+
+
+func _take_weighted_upgrade(pool: Array[String]) -> String:
+    var total_weight := 0.0
+    for upgrade_id in pool:
+        total_weight += maxf(0.0, _upgrade_roll_weight(upgrade_id))
+
+    if total_weight <= 0.0:
+        return pool.pop_back()
+
+    var roll := rng.randf() * total_weight
+    for index in range(pool.size()):
+        roll -= maxf(0.0, _upgrade_roll_weight(pool[index]))
+        if roll <= 0.0:
+            var selected := pool[index]
+            pool.remove_at(index)
+            return selected
+    return pool.pop_back()
+
+
 func _roll_upgrade_options() -> Array[String]:
     var pool: Array[String] = []
     for upgrade_id in GameConfig.GLOBAL_UPGRADE_IDS:
@@ -1094,9 +1116,8 @@ func _roll_upgrade_options() -> Array[String]:
         options.append("damage")
         pool.erase("damage")
 
-    pool.shuffle()
     while options.size() < 3 and not pool.is_empty():
-        options.append(pool.pop_back())
+        options.append(_take_weighted_upgrade(pool))
     return options
 
 
@@ -1116,9 +1137,8 @@ func _roll_weapon_upgrade_options() -> Array[String]:
         options.append(guaranteed_unlock)
         pool.erase(guaranteed_unlock)
 
-    pool.shuffle()
     while options.size() < 3 and not pool.is_empty():
-        options.append(pool.pop_back())
+        options.append(_take_weighted_upgrade(pool))
     return options
 
 
