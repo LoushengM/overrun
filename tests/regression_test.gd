@@ -21,6 +21,7 @@ func _run() -> void:
     _test_enemy_speed_scaling(world)
     _test_boss_scaling_and_protection(world)
     _test_weapon_slots_and_boss_rewards(scene, world, hud)
+    _test_targeting_modes(scene, world, hud)
     _test_weapon_firing_rules(world)
 
     scene.queue_free()
@@ -226,6 +227,35 @@ func _test_weapon_slots_and_boss_rewards(scene: Node, world: SimulationWorld, hu
     assert(world.owned_weapons.size() == GameConfig.WEAPON_SLOT_CAP, "The loadout must cap at four weapons")
     assert(not world._is_upgrade_eligible("unlock_sniper"), "New weapon choices must disappear at the slot cap")
     assert(not world._is_upgrade_eligible("unlock_aura"), "Owned weapons cannot be unlocked twice")
+
+
+func _test_targeting_modes(scene: Node, world: SimulationWorld, hud: GameHud) -> void:
+    world.reset_run()
+    _clear_combat_state(world)
+    world.player_position = Vector2.ZERO
+    world.weapon_damage = GameConfig.NEEDLE_DAMAGE
+    world.weapon_projectile_count = 1
+    world.targeting_mode = SimulationWorld.TargetingMode.CLOSEST
+
+    world._add_enemy(Vector2(100.0, 0.0), 100.0, 0.0, 0.0, 14.0, 0, SimulationWorld.EnemyKind.NORMAL, Vector2.ZERO)
+    world._add_enemy(Vector2(0.0, 600.0), 1000.0, 0.0, 0.0, 42.0, 20, SimulationWorld.EnemyKind.BOSS, Vector2.ZERO)
+    assert(world._find_target_enemy(Vector2.ZERO, GameConfig.NEEDLE_RANGE) == 0, "Closest targeting must choose the nearby normal enemy")
+
+    var toggle_event := InputEventKey.new()
+    toggle_event.keycode = KEY_T
+    toggle_event.pressed = true
+    scene.call("_unhandled_input", toggle_event)
+    assert(world.targeting_mode == SimulationWorld.TargetingMode.STRONGEST, "T must toggle targeting to Strongest")
+    assert(world._find_target_enemy(Vector2.ZERO, GameConfig.NEEDLE_RANGE) == 1, "Strongest targeting must prioritize an in-range boss")
+    assert(hud.stats_label.text.contains("TARGET STRONGEST"), "The HUD must show the active targeting mode")
+
+    world.needle_timer = 0.0
+    world._update_needle(0.0)
+    assert(world.projectile_positions.size() == 1, "Needle must fire in Strongest mode")
+    assert(world.projectile_velocities[0].y > 0.0 and absf(world.projectile_velocities[0].x) < 0.001, "Strongest Needle fire must aim at the boss instead of the closer normal enemy")
+
+    scene.call("_unhandled_input", toggle_event)
+    assert(world.targeting_mode == SimulationWorld.TargetingMode.CLOSEST, "T must toggle targeting back to Closest")
 
 
 func _test_weapon_firing_rules(world: SimulationWorld) -> void:

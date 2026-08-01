@@ -9,6 +9,7 @@ signal boss_spawned
 
 enum EnemyKind { NORMAL, BOSS }
 enum ProjectileKind { NEEDLE, SNIPER }
+enum TargetingMode { CLOSEST, STRONGEST }
 
 @onready var camera: Camera2D = $Camera2D
 
@@ -17,6 +18,7 @@ var benchmark_mode := false
 var is_running := false
 var pending_upgrade := false
 var pending_boss_rewards := 0
+var targeting_mode: int = TargetingMode.CLOSEST
 
 var elapsed_time := 0.0
 var kills := 0
@@ -175,6 +177,7 @@ func reset_run() -> void:
     is_running = true
     pending_upgrade = false
     pending_boss_rewards = 0
+    targeting_mode = TargetingMode.CLOSEST
     elapsed_time = 0.0
     kills = 0
     level = 1
@@ -419,7 +422,7 @@ func _update_needle(delta: float) -> void:
     if needle_timer > 0.0:
         return
 
-    var target_index := _find_nearest_enemy(player_position, weapon_range)
+    var target_index := _find_target_enemy(player_position, weapon_range)
     if target_index < 0:
         needle_timer = 0.08
         return
@@ -447,7 +450,7 @@ func _update_sniper(delta: float) -> void:
     if sniper_timer > 0.0:
         return
 
-    var target_index := _find_nearest_enemy(player_position, sniper_range)
+    var target_index := _find_target_enemy(player_position, sniper_range)
     if target_index < 0:
         sniper_timer = 0.10
         return
@@ -1087,6 +1090,25 @@ func _golomb(index: int) -> int:
     return golomb_cache[index]
 
 
+func toggle_targeting_mode() -> void:
+    targeting_mode = (
+        TargetingMode.STRONGEST
+        if targeting_mode == TargetingMode.CLOSEST
+        else TargetingMode.CLOSEST
+    )
+    _emit_stats()
+
+
+func get_targeting_mode_name() -> String:
+    return "STRONGEST" if targeting_mode == TargetingMode.STRONGEST else "CLOSEST"
+
+
+func _find_target_enemy(origin: Vector2, max_range: float) -> int:
+    if targeting_mode == TargetingMode.STRONGEST:
+        return _find_strongest_enemy(origin, max_range)
+    return _find_nearest_enemy(origin, max_range)
+
+
 func _find_nearest_enemy(origin: Vector2, max_range: float) -> int:
     var best_index := -1
     var best_distance_squared := max_range * max_range
@@ -1097,6 +1119,44 @@ func _find_nearest_enemy(origin: Vector2, max_range: float) -> int:
         if distance_squared < best_distance_squared:
             best_distance_squared = distance_squared
             best_index = i
+    return best_index
+
+
+func _find_strongest_enemy(origin: Vector2, max_range: float) -> int:
+    var best_index := -1
+    var best_is_boss := false
+    var best_max_health := -1.0
+    var best_current_health := -1.0
+    var best_distance_squared := INF
+    var max_range_squared := max_range * max_range
+
+    for i in range(enemy_positions.size()):
+        if enemy_health[i] <= 0.0:
+            continue
+        var distance_squared := origin.distance_squared_to(enemy_positions[i])
+        if distance_squared >= max_range_squared:
+            continue
+
+        var is_boss := enemy_kinds[i] == EnemyKind.BOSS
+        var should_replace := best_index < 0
+        if not should_replace and is_boss != best_is_boss:
+            should_replace = is_boss
+        elif not should_replace and is_boss == best_is_boss:
+            if enemy_max_health[i] > best_max_health + 0.001:
+                should_replace = true
+            elif is_equal_approx(enemy_max_health[i], best_max_health):
+                if enemy_health[i] > best_current_health + 0.001:
+                    should_replace = true
+                elif is_equal_approx(enemy_health[i], best_current_health) and distance_squared < best_distance_squared:
+                    should_replace = true
+
+        if should_replace:
+            best_index = i
+            best_is_boss = is_boss
+            best_max_health = enemy_max_health[i]
+            best_current_health = enemy_health[i]
+            best_distance_squared = distance_squared
+
     return best_index
 
 
@@ -1289,6 +1349,7 @@ func get_stats_snapshot() -> Dictionary:
         "owned_weapons": owned_weapons.duplicate(),
         "weapon_slots": owned_weapons.size(),
         "weapon_slot_cap": GameConfig.WEAPON_SLOT_CAP,
+        "targeting_mode": get_targeting_mode_name(),
         "cooldown": weapon_cooldown,
         "projectile_count": weapon_projectile_count,
         "pierce": weapon_pierce,

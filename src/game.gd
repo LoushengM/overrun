@@ -28,6 +28,17 @@ func _ready() -> void:
         world.enable_benchmark()
 
 
+func _unhandled_input(event: InputEvent) -> void:
+    if get_tree().paused or not world.is_running or not event is InputEventKey:
+        return
+    var key_event := event as InputEventKey
+    if not key_event.pressed or key_event.echo:
+        return
+    if key_event.keycode == KEY_T:
+        world.toggle_targeting_mode()
+        get_viewport().set_input_as_handled()
+
+
 func _process(_delta: float) -> void:
     if Input.is_key_pressed(KEY_ESCAPE):
         get_tree().quit()

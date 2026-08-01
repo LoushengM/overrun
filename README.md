@@ -25,6 +25,7 @@ The detailed design remains in [`docs/MVP_DESIGN.md`](docs/MVP_DESIGN.md).
 ## Controls
 
 - Move: `WASD` or arrow keys
+- Toggle targeting between Closest and Strongest: `T`
 - Choose upgrades: mouse or number keys `1`, `2`, and `3`
 - Restart after death: `R`, `Enter`, or the restart button
 - Quit: `Escape`

@@ -71,7 +71,7 @@ func update_stats(stats: Dictionary) -> void:
         "LEVEL %d    XP %d / %d\n" % [stats.get("level", 1), stats.get("xp", 0), stats.get("xp_required", 1)]
         + "TIME %s    KILLS %d\n" % [_format_time(stats.get("elapsed", 0.0)), stats.get("kills", 0)]
         + "ENEMIES %d    SHOTS %d    BOSSES %d\n" % [stats.get("enemies", 0), stats.get("projectiles", 0), stats.get("bosses", 0)]
-        + "FPS %d" % stats.get("fps", 0)
+        + "FPS %d    TARGET %s" % [stats.get("fps", 0), stats.get("targeting_mode", "CLOSEST")]
     )
 
     var weapon_codes := {
@@ -238,7 +238,7 @@ func _build_interface() -> void:
     var controls := Label.new()
     controls.position = Vector2(18.0, 675.0)
     controls.size = Vector2(620.0, 28.0)
-    controls.text = "MOVE: WASD / ARROWS     AUTO-FIRE: NEAREST TARGET     ESC: QUIT"
+    controls.text = "MOVE: WASD / ARROWS     T: CLOSEST / STRONGEST TARGET     ESC: QUIT"
     controls.add_theme_font_size_override("font_size", 14)
     controls.add_theme_color_override("font_color", Color(0.52, 0.64, 0.75))
     root.add_child(controls)
