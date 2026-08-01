@@ -56,7 +56,7 @@ func _on_boss_upgrade_requested(options: Array[String]) -> void:
             world.apply_upgrade(options[0])
         return
     get_tree().paused = true
-    hud.show_upgrade(options, "BOSS REWARD", "Choose a Needle weapon upgrade")
+    hud.show_upgrade(options, "BOSS REWARD", "Choose a new weapon or an owned-weapon upgrade")
 
 
 func _on_upgrade_selected(upgrade_id: String) -> void:

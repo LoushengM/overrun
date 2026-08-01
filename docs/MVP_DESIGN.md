@@ -103,18 +103,15 @@ Regeneration begins only after the damage delay and stops at 50% maximum health.
 
 Future characters may vary these baseline values, starting weapon, movement behavior, range preferences, or passive rule. The MVP uses one character and no character-select screen.
 
-## 7. Initial weapon
+## 7. Weapon roster and slots
 
-Working weapon name: **Needle**
+The player has **four permanent weapon slots**. Needle starts in the first slot. Boss rewards may unlock Longshot, Aura Pulse, or Mire Field while a slot remains. Once four weapons are equipped, new-weapon choices disappear.
 
-Behavior:
+Weapons only auto-fire when a valid enemy is inside their own range, except Mire Field, which deliberately deploys around the player without needing a target.
 
-- Find the nearest valid enemy within targeting range.
-- Fire one projectile in a straight line toward its position at fire time.
-- Do not home after firing.
-- The projectile dies after its lifetime expires or its available hits are consumed.
+### Needle
 
-Suggested starting values:
+Short-range generalist projectile:
 
 | Stat | Initial value |
 |---|---:|
@@ -122,10 +119,36 @@ Suggested starting values:
 | Cooldown | 0.60 s |
 | Projectile count | 1 |
 | Projectile speed | 900 px/s |
-| Projectile lifetime | 1.5 s |
-| Targeting range | 1,200 px |
+| Projectile lifetime | 0.90 s |
+| Targeting range | 700 px |
 | Projectile radius | 6 px |
 | Pierce | 0 |
+
+### Longshot
+
+Slow, strong standard projectile:
+
+| Stat | Initial value |
+|---|---:|
+| Damage | 55 |
+| Cooldown | 2.40 s |
+| Projectile speed | 1,600 px/s |
+| Projectile lifetime | 1.80 s |
+| Targeting range | 2,200 px |
+| Projectile radius | 8 px |
+| Pierce | 0 |
+
+### Aura Pulse
+
+A slow melee pulse that fires only when an enemy is inside its radius. Every pulse hits every target in range. Aura pierce adds another full damage instance against each target caught by that same pulse, so the same enemy may be hit repeatedly by one attack.
+
+Starting values: 12 damage per instance, 3.20-second cooldown, 180 px radius, and 0 pierce.
+
+### Mire Field
+
+Deploys a persistent zone at rotating positions around the player even when no enemies are present. Each field lasts 4 seconds, ticks every 0.50 seconds for 4 base damage, covers a 130 px radius, and slows enemies inside it to 65% movement speed.
+
+### Projectile damage budget
 
 Projectile pierce is a consumable damage budget:
 
@@ -133,7 +156,7 @@ Projectile pierce is a consumable damage budget:
 
 A projectile applies only enough damage to consume the target's remaining health, then carries any overkill budget into later enemies. For example, a 10-damage projectile with 0 pierce can kill two 5-health enemies. If a target survives the hit, it consumes the projectile's entire remaining budget and stops it.
 
-A projectile can damage each target only once during its lifetime. Repeat-hit behavior belongs to persistent attacks such as orbiting or melee weapons and must be configured separately from pierce.
+A projectile can damage each target only once during its lifetime. Repeat-hit behavior belongs to explicitly persistent or melee attacks such as Aura Pulse and is separate from projectile pierce.
 
 ## 8. Initial enemy
 
@@ -193,27 +216,28 @@ On level-up:
 - Preserve XP overflow.
 - Guarantee a Damage choice whenever current normal-enemy health exceeds 1.5 times the weapon's base projectile damage. This prevents utility-heavy RNG from allowing enemy health scaling to strand the build.
 
-First-slice upgrade pool:
+Global upgrades remain eligible indefinitely:
 
 | Upgrade | Effect |
 |---|---|
-| Base damage | +20% damage for all weapons; uncapped |
-| Needle fire rate | -12% weapon cooldown; capped at 10 upgrades |
-| Needle projectile | +1 projectile per attack; capped at +10 |
-| Needle pierce | +1 full damage budget; capped at +10 |
+| Base damage | +20% damage for every weapon |
 | Move speed | +10% movement speed |
 | Maximum health | +15% max health and heal the amount gained |
-
-MVP additions after the first slice:
-
-| Upgrade | Effect |
-|---|---|
 | Armor | +10 armor |
 | Regeneration | +0.5% max health/s |
 
-Pickup radius remains a fixed player stat while health pickups are the only collectible. It should not appear in upgrade rolls unless the game later adds enough collectible objects to make the choice meaningful.
+Each owned weapon contributes only its own uncapped choices to ordinary level-ups. Capped upgrades disappear from future rolls.
 
-Each weapon owns its own capped upgrade pool. Capped weapon upgrades disappear from future rolls. New weapons will eventually be rarer choices. Do not build a general rarity framework for the first weapon. When a second weapon exists, introduce a small weighted pool and a pity rule that raises the chance of seeing a new weapon after several levels without one.
+| Weapon | Capped upgrade tracks |
+|---|---|
+| Needle | Fire rate 10, projectile count 10, pierce 10, range 5 |
+| Longshot | Fire rate 8, pierce 6, range 5 |
+| Aura Pulse | Fire rate 8, radius 6, repeat-hit pierce 6 |
+| Mire Field | Deployment rate 8, radius 6, duration 6 |
+
+Boss rewards contain only weapon content: at least one new weapon is guaranteed while an empty slot exists, and the remaining choices are uncapped upgrades for already owned weapons. At the four-slot cap, new-weapon choices disappear.
+
+Pickup radius remains a fixed player stat while health pickups are the only collectible. It should not appear in upgrade rolls unless the game later adds enough collectible objects to make the choice meaningful.
 
 ## 11. Health, armor, regeneration, and healing
 
@@ -286,7 +310,7 @@ The first boss should:
 - Appear one to two screens away.
 - Persist if ignored.
 - Patrol or pursue within a broad region rather than following forever at any distance.
-- Award 20 XP and queue a paused reward containing only eligible upgrades from the equipped weapon's pool.
+- Award 20 XP and queue a paused weapon-only reward. Guarantee a new weapon while a slot remains; otherwise offer eligible upgrades from owned weapon pools.
 - Never drop a health pickup.
 - Scale health as `550 × (1 + minutes + 0.20 × minutes²)`.
 - After a full-damage hit, gain 0.35 seconds of 80% damage mitigation. This is resistance, not invulnerability, and raw projectile damage budget is still consumed.

@@ -14,14 +14,63 @@ const PLAYER_REGEN_DELAY := 3.0
 const PLAYER_PICKUP_RADIUS := 72.0
 const PLAYER_HIT_INVULNERABILITY := 0.35
 
-const WEAPON_DAMAGE := 10.0
-const WEAPON_COOLDOWN := 0.60
-const WEAPON_PROJECTILES := 1
-const WEAPON_SPEED := 900.0
-const WEAPON_LIFETIME := 1.5
-const WEAPON_RANGE := 1200.0
-const WEAPON_RADIUS := 6.0
-const WEAPON_PIERCE := 0
+const WEAPON_SLOT_CAP := 4
+const WEAPON_IDS := ["needle", "sniper", "aura", "field"]
+const WEAPON_NAMES := {
+    "needle": "Needle",
+    "sniper": "Longshot",
+    "aura": "Aura Pulse",
+    "field": "Mire Field",
+}
+
+# Needle: short-range generalist projectile.
+const NEEDLE_DAMAGE := 10.0
+const NEEDLE_COOLDOWN := 0.60
+const NEEDLE_PROJECTILES := 1
+const NEEDLE_SPEED := 900.0
+const NEEDLE_LIFETIME := 0.90
+const NEEDLE_RANGE := 700.0
+const NEEDLE_RADIUS := 6.0
+const NEEDLE_PIERCE := 0
+
+# Compatibility names used by the current simulation and benchmark helpers.
+const WEAPON_DAMAGE := NEEDLE_DAMAGE
+const WEAPON_COOLDOWN := NEEDLE_COOLDOWN
+const WEAPON_PROJECTILES := NEEDLE_PROJECTILES
+const WEAPON_SPEED := NEEDLE_SPEED
+const WEAPON_LIFETIME := NEEDLE_LIFETIME
+const WEAPON_RANGE := NEEDLE_RANGE
+const WEAPON_RADIUS := NEEDLE_RADIUS
+const WEAPON_PIERCE := NEEDLE_PIERCE
+
+# Longshot: slow, high-damage, long-range standard projectile.
+const SNIPER_DAMAGE := 55.0
+const SNIPER_COOLDOWN := 2.40
+const SNIPER_SPEED := 1600.0
+const SNIPER_LIFETIME := 1.80
+const SNIPER_RANGE := 2200.0
+const SNIPER_RADIUS := 8.0
+const SNIPER_PIERCE := 0
+
+# Aura Pulse: fires only when something is in melee range. Pierce adds repeat
+# damage instances against every target caught by the same pulse.
+const AURA_DAMAGE := 12.0
+const AURA_COOLDOWN := 3.20
+const AURA_RADIUS := 180.0
+const AURA_PIERCE := 0
+const AURA_VISUAL_DURATION := 0.35
+
+# Mire Field: places persistent slowing damage zones around the player without
+# requiring a target.
+const FIELD_DAMAGE := 4.0
+const FIELD_COOLDOWN := 2.80
+const FIELD_PLACEMENT_RADIUS := 260.0
+const FIELD_RADIUS := 130.0
+const FIELD_DURATION := 4.0
+const FIELD_TICK_INTERVAL := 0.50
+const FIELD_SLOW_MULTIPLIER := 0.65
+const FIELD_CAP := 48
+
 const DAMAGE_PITY_SHOTS_TO_KILL := 1.50
 
 const ENEMY_CAP := 1450
@@ -78,35 +127,103 @@ const GLOBAL_UPGRADE_IDS := [
 ]
 
 const NEEDLE_UPGRADE_IDS := [
-    "fire_rate",
-    "projectile_count",
-    "pierce",
+    "needle_fire_rate",
+    "needle_projectile_count",
+    "needle_pierce",
+    "needle_range",
 ]
 
-const NEEDLE_UPGRADE_CAPS := {
-    "fire_rate": 10,
-    "projectile_count": 10,
-    "pierce": 10,
+const SNIPER_UPGRADE_IDS := [
+    "sniper_fire_rate",
+    "sniper_pierce",
+    "sniper_range",
+]
+
+const AURA_UPGRADE_IDS := [
+    "aura_fire_rate",
+    "aura_radius",
+    "aura_pierce",
+]
+
+const FIELD_UPGRADE_IDS := [
+    "field_fire_rate",
+    "field_radius",
+    "field_duration",
+]
+
+const WEAPON_UPGRADE_IDS := {
+    "needle": NEEDLE_UPGRADE_IDS,
+    "sniper": SNIPER_UPGRADE_IDS,
+    "aura": AURA_UPGRADE_IDS,
+    "field": FIELD_UPGRADE_IDS,
+}
+
+const WEAPON_UPGRADE_CAPS := {
+    "needle_fire_rate": 10,
+    "needle_projectile_count": 10,
+    "needle_pierce": 10,
+    "needle_range": 5,
+    "sniper_fire_rate": 8,
+    "sniper_pierce": 6,
+    "sniper_range": 5,
+    "aura_fire_rate": 8,
+    "aura_radius": 6,
+    "aura_pierce": 6,
+    "field_fire_rate": 8,
+    "field_radius": 6,
+    "field_duration": 6,
+}
+
+const WEAPON_UNLOCK_IDS := {
+    "unlock_sniper": "sniper",
+    "unlock_aura": "aura",
+    "unlock_field": "field",
 }
 
 const UPGRADE_NAMES := {
     "damage": "Base Damage",
-    "fire_rate": "Needle — Faster Cycling",
-    "projectile_count": "Needle — Split Shot",
-    "pierce": "Needle — Piercing Rounds",
     "move_speed": "Light Footing",
     "max_health": "Reinforced Core",
     "armor": "Plating",
     "regen": "Recovery",
+    "unlock_sniper": "New Weapon — Longshot",
+    "unlock_aura": "New Weapon — Aura Pulse",
+    "unlock_field": "New Weapon — Mire Field",
+    "needle_fire_rate": "Needle — Faster Cycling",
+    "needle_projectile_count": "Needle — Split Shot",
+    "needle_pierce": "Needle — Piercing Rounds",
+    "needle_range": "Needle — Extended Barrel",
+    "sniper_fire_rate": "Longshot — Bolt Cycling",
+    "sniper_pierce": "Longshot — Penetrator",
+    "sniper_range": "Longshot — High-Power Optics",
+    "aura_fire_rate": "Aura Pulse — Quicker Pulse",
+    "aura_radius": "Aura Pulse — Wider Wave",
+    "aura_pierce": "Aura Pulse — Echoing Strike",
+    "field_fire_rate": "Mire Field — Faster Deployment",
+    "field_radius": "Mire Field — Wider Pool",
+    "field_duration": "Mire Field — Lingering Mire",
 }
 
 const UPGRADE_DESCRIPTIONS := {
     "damage": "+20% damage for all weapons",
-    "fire_rate": "-12% weapon cooldown",
-    "projectile_count": "+1 projectile per attack",
-    "pierce": "Adds one full projectile damage budget",
     "move_speed": "+10% movement speed",
     "max_health": "+15% max health and heal the gain",
     "armor": "+10 armor",
     "regen": "+0.5% max health regeneration per second",
+    "unlock_sniper": "Equip a slow, powerful long-range projectile weapon",
+    "unlock_aura": "Equip a melee pulse that hits every nearby enemy",
+    "unlock_field": "Equip persistent slowing damage zones",
+    "needle_fire_rate": "-12% Needle cooldown",
+    "needle_projectile_count": "+1 Needle projectile per attack",
+    "needle_pierce": "+1 full Needle damage budget",
+    "needle_range": "+12% Needle targeting and travel range",
+    "sniper_fire_rate": "-10% Longshot cooldown",
+    "sniper_pierce": "+1 full Longshot damage budget",
+    "sniper_range": "+12% Longshot targeting and travel range",
+    "aura_fire_rate": "-10% Aura Pulse cooldown",
+    "aura_radius": "+12% Aura Pulse radius",
+    "aura_pierce": "+1 damage instance against every target in the pulse",
+    "field_fire_rate": "-10% Mire Field deployment cooldown",
+    "field_radius": "+12% Mire Field radius",
+    "field_duration": "+0.5 seconds Mire Field duration",
 }

@@ -7,15 +7,15 @@ The repository intentionally favors a small playable loop over a content framewo
 ## Current demo
 
 - One playable character, Runner
-- One straight-line auto-targeting weapon, Needle
+- A four-slot weapon roster: Needle, Longshot, Aura Pulse, and Mire Field
 - An array-based enemy and projectile simulation with batched rendering
 - XP with three-choice paused level-ups and damage-scaling pity
-- Infinite global damage scaling plus capped Needle fire-rate, projectile-count, and pierce upgrades
+- Infinite global damage scaling plus distinct capped upgrade pools for every weapon
 - Armor with diminishing returns and brief post-hit invulnerability frames
 - Regeneration only below 50% health after a damage delay
 - Persistent percentage-based health pickups
 - Endless health, damage, and movement scaling with anti-lull spawn-and-speed surges
-- Fast-scaling persistent bosses with telegraphed attacks, burst protection, and weapon-only rewards
+- Fast-scaling persistent bosses with telegraphed attacks, burst protection, and weapon-only rewards that can unlock open weapon slots
 - A minimap that always marks bosses
 - Death summary and one-input restart
 - A headless 1,200-enemy stress mode
@@ -80,7 +80,7 @@ src/minimap.gd              boss and emergency pickup radar
 scenes/main.tscn            minimal scene composition
 ```
 
-The simulation uses no node per enemy and no signal per hit. Large populations live in compact parallel arrays, collision uses a uniform spatial grid with reused buckets, and normal enemies and projectiles render through `MultiMesh` batches.
+The simulation uses no node per enemy and no signal per hit. Large populations live in compact parallel arrays, collision uses a uniform spatial grid with reused buckets, and normal enemies and projectiles render through `MultiMesh` batches. Needle and Longshot require targets in their own ranges, Aura Pulse repeats damage instances through its pierce stat, and Mire Field persists and slows nearby enemies without requiring a target.
 
 ## Contribution rules
 

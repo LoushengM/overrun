@@ -16,7 +16,7 @@ func _run() -> void:
     world.benchmark_mode = true
     world.is_running = true
     world.player_position = Vector2.ZERO
-    world.weapon_timer = 9999.0
+    world.needle_timer = 9999.0
 
     var columns := 32
     var rows := 25
@@ -70,6 +70,12 @@ func _clear_combat_state(world: SimulationWorld) -> void:
     world.projectile_lifetimes.clear()
     world.projectile_remaining_damage.clear()
     world.projectile_attack_ids.clear()
+    world.projectile_radii.clear()
+    world.projectile_kinds.clear()
+    world.field_positions.clear()
+    world.field_lifetimes.clear()
+    world.field_tick_timers.clear()
+    world.field_radii.clear()
     world.projectile_candidate_targets.clear()
     world.projectile_candidate_fractions.clear()
     world.hit_targets.clear()

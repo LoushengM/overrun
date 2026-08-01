@@ -74,11 +74,33 @@ func update_stats(stats: Dictionary) -> void:
         + "FPS %d" % stats.get("fps", 0)
     )
 
+    var weapon_codes := {
+        "needle": "N",
+        "sniper": "S",
+        "aura": "A",
+        "field": "F",
+    }
+    var owned_weapon_ids: Array = stats.get("owned_weapons", [])
+    var loadout_codes: Array[String] = []
+    for weapon_id in owned_weapon_ids:
+        loadout_codes.append(weapon_codes.get(weapon_id, "?"))
+
     build_label.text = (
-        "NEEDLE  %.1f dmg  %.2fs\n" % [stats.get("damage", 0.0), stats.get("cooldown", 0.0)]
-        + "%d projectile(s)  %d pierce\n" % [stats.get("projectile_count", 1), stats.get("pierce", 0)]
-        + "%.0f armor  %.0f%% reduction\n" % [stats.get("armor", 0.0), stats.get("damage_reduction", 0.0) * 100.0]
-        + "%.1f%% regen/s" % [stats.get("regen_rate", 0.0) * 100.0]
+        "DAMAGE x%.2f    W %d/%d\n" % [
+            stats.get("damage_multiplier", 1.0),
+            stats.get("weapon_slots", 1),
+            stats.get("weapon_slot_cap", 4),
+        ]
+        + "LOADOUT  %s\n" % " ".join(loadout_codes)
+        + "NEEDLE  %dx  %dp  %.0fr\n" % [
+            stats.get("projectile_count", 1),
+            stats.get("pierce", 0),
+            stats.get("needle_range", 0.0),
+        ]
+        + "%.0f armor  %.1f%% regen/s" % [
+            stats.get("armor", 0.0),
+            stats.get("regen_rate", 0.0) * 100.0,
+        ]
     )
     surge_label.visible = stats.get("surge", false)
 
@@ -116,7 +138,8 @@ func show_death(summary: Dictionary) -> void:
         + "Time survived: %s\n" % _format_time(summary.get("elapsed", 0.0))
         + "Level reached: %d\n" % summary.get("level", 1)
         + "Enemies destroyed: %d\n" % summary.get("kills", 0)
-        + "Peak Needle damage: %.1f\n\n" % summary.get("damage", 0.0)
+        + "Peak base damage: %.1f\n" % summary.get("damage", 0.0)
+        + "Weapons equipped: %d / %d\n\n" % [summary.get("weapon_slots", 1), summary.get("weapon_slot_cap", 4)]
         + "Press R or Enter to restart"
     )
     death_overlay.visible = true
