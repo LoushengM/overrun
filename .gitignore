@@ -1,0 +1,20 @@
+# Godot
+.godot/
+.import/
+export.cfg
+export_presets.cfg
+
+# Mono / C# if introduced later
+.mono/
+*.sln
+*.csproj
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Build output
+build/
+dist/
