@@ -83,13 +83,13 @@ With GitHub CLI authenticated, publish the current clean commit to the rolling `
 
 The publisher rebuilds the executable, verifies the local checksum and PE format, replaces both release assets, moves the `dev` tag to the published commit, downloads the assets again, and verifies the remote checksum. It refuses a dirty worktree unless `ALLOW_DIRTY=1` is set intentionally.
 
-The executable keeps a stable authenticated download URL:
+The executable keeps a stable public download URL:
 
 ```text
 https://github.com/LoushengM/overrun/releases/download/dev/Overrun.exe
 ```
 
-The repository is private, so downloaders must have access to it. The matching `Overrun.exe.sha256` asset is published beside the executable.
+The repository is public, so the release assets can be downloaded without GitHub authentication. The matching `Overrun.exe.sha256` asset is published beside the executable.
 
 ## Code map
 
