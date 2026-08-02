@@ -20,10 +20,10 @@ const CUE_CONFIG := {
     },
     "aura_pulse": {
         "path": "res://assets/audio/aura_pulse.wav",
-        "volume_db": -12.0,
-        "cooldown": 0.08,
-        "pitch_min": 0.97,
-        "pitch_max": 1.03,
+        "volume_db": -9.0,
+        "cooldown": 0.30,
+        "pitch_min": 0.96,
+        "pitch_max": 1.01,
     },
     "mire_deploy": {
         "path": "res://assets/audio/mire_deploy.wav",

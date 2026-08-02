@@ -491,7 +491,7 @@ func _update_aura(delta: float) -> void:
     if aura_echoes_remaining > 0:
         aura_echo_timer -= delta
         while aura_echoes_remaining > 0 and aura_echo_timer <= 0.0:
-            _emit_aura_pulse()
+            _emit_aura_pulse(false)
             aura_echoes_remaining -= 1
             aura_echo_timer += GameConfig.AURA_ECHO_INTERVAL
         if aura_echoes_remaining > 0:
@@ -509,7 +509,7 @@ func _update_aura(delta: float) -> void:
     aura_timer += maxf(0.20, aura_cooldown)
 
 
-func _emit_aura_pulse() -> void:
+func _emit_aura_pulse(play_sound := true) -> void:
     var damage_instance := _scaled_weapon_damage(GameConfig.AURA_DAMAGE)
     for enemy_index in range(enemy_positions.size()):
         if enemy_health[enemy_index] - enemy_reserved_damage[enemy_index] <= 0.0:
@@ -519,7 +519,8 @@ func _emit_aura_pulse() -> void:
             continue
         _queue_fixed_damage(enemy_index, damage_instance)
     aura_visual_timer = GameConfig.AURA_VISUAL_DURATION
-    _request_sound("aura_pulse")
+    if play_sound:
+        _request_sound("aura_pulse")
 
 
 func _update_field_launcher(delta: float) -> void:
@@ -1105,6 +1106,14 @@ func _take_weighted_upgrade(pool: Array[String]) -> String:
     return pool.pop_back()
 
 
+func _eligible_dps_upgrades() -> Array[String]:
+    var result: Array[String] = []
+    for upgrade_id in GameConfig.DPS_UPGRADE_IDS:
+        if _is_upgrade_eligible(upgrade_id):
+            result.append(upgrade_id)
+    return result
+
+
 func _roll_upgrade_options() -> Array[String]:
     var pool: Array[String] = []
     for upgrade_id in GameConfig.GLOBAL_UPGRADE_IDS:
@@ -1112,9 +1121,12 @@ func _roll_upgrade_options() -> Array[String]:
     pool.append_array(_eligible_owned_weapon_upgrades())
 
     var options: Array[String] = []
-    if _is_damage_pity_active():
-        options.append("damage")
-        pool.erase("damage")
+    var offense_pool := _eligible_dps_upgrades()
+    var guaranteed_offense_count := mini(_offense_pity_option_count(), offense_pool.size())
+    while options.size() < guaranteed_offense_count and not offense_pool.is_empty():
+        var offense_upgrade := _take_weighted_upgrade(offense_pool)
+        options.append(offense_upgrade)
+        pool.erase(offense_upgrade)
 
     while options.size() < 3 and not pool.is_empty():
         options.append(_take_weighted_upgrade(pool))
@@ -1158,8 +1170,56 @@ func _current_boss_health() -> float:
     return GameConfig.BOSS_HEALTH * health_scale
 
 
-func _is_damage_pity_active() -> bool:
-    return _current_normal_enemy_health() > weapon_damage * GameConfig.DAMAGE_PITY_SHOTS_TO_KILL
+func _estimated_sustained_dps() -> float:
+    var needle_effective_projectiles := (
+        1.0
+        + float(maxi(0, weapon_projectile_count - 1))
+        * GameConfig.NEEDLE_EXTRA_PROJECTILE_DPS_FACTOR
+    )
+    var total_dps := weapon_damage * needle_effective_projectiles / maxf(0.01, weapon_cooldown)
+
+    if _has_weapon("sniper"):
+        total_dps += _scaled_weapon_damage(GameConfig.SNIPER_DAMAGE) / maxf(0.01, sniper_cooldown)
+
+    if _has_weapon("aura"):
+        total_dps += (
+            _scaled_weapon_damage(GameConfig.AURA_DAMAGE)
+            * float(aura_echoes + 1)
+            / maxf(0.01, aura_cooldown)
+            * GameConfig.AURA_DPS_UPTIME_FACTOR
+        )
+
+    if _has_weapon("field"):
+        var field_equivalents := minf(
+            GameConfig.FIELD_DPS_MAX_EQUIVALENTS,
+            field_duration / maxf(0.01, field_cooldown) * GameConfig.FIELD_DPS_OVERLAP_FACTOR
+        )
+        total_dps += (
+            _scaled_weapon_damage(GameConfig.FIELD_DAMAGE)
+            / GameConfig.FIELD_TICK_INTERVAL
+            * field_equivalents
+        )
+
+    return total_dps
+
+
+func _required_sustained_dps() -> float:
+    return _current_normal_enemy_health() / GameConfig.OFFENSE_PITY_TARGET_TTK
+
+
+func _offense_pity_ratio() -> float:
+    return _estimated_sustained_dps() / maxf(0.01, _required_sustained_dps())
+
+
+func _offense_pity_option_count() -> int:
+    if level > GameConfig.OFFENSE_PITY_MAX_LEVEL:
+        return 0
+    var ratio := _offense_pity_ratio()
+    if ratio < GameConfig.OFFENSE_PITY_SEVERE_RATIO:
+        return 2
+    if ratio < 1.0:
+        return 1
+    return 0
 
 
 func xp_required_for(target_level: int) -> int:
@@ -1427,6 +1487,9 @@ func get_stats_snapshot() -> Dictionary:
         "bosses": get_boss_count(),
         "damage": weapon_damage,
         "damage_multiplier": weapon_damage / GameConfig.NEEDLE_DAMAGE,
+        "estimated_dps": _estimated_sustained_dps(),
+        "required_dps": _required_sustained_dps(),
+        "offense_pity_choices": _offense_pity_option_count(),
         "owned_weapons": owned_weapons.duplicate(),
         "weapon_slots": owned_weapons.size(),
         "weapon_slot_cap": GameConfig.WEAPON_SLOT_CAP,

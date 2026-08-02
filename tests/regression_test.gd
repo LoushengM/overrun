@@ -18,7 +18,7 @@ func _run() -> void:
     _test_audio_wiring(audio, world)
     _test_pause_and_keyboard_selection(scene, world, hud)
     _test_projectile_damage_conservation(world)
-    _test_damage_pity(world)
+    _test_offense_pity(world)
     _test_upgrade_roll_weights(world)
     _test_player_invulnerability(world)
     _test_speed_upgrade_camera_zoom(world)
@@ -148,19 +148,40 @@ func _test_projectile_damage_conservation(world: SimulationWorld) -> void:
     assert(is_equal_approx(world.projectile_remaining_damage[0], 20.0), "Needle pierce must add one full damage budget")
 
 
-func _test_damage_pity(world: SimulationWorld) -> void:
-    world.elapsed_time = 180.0
-    world.weapon_damage = 10.0
-    assert(world._is_damage_pity_active(), "Damage pity must activate when enemy HP outscales base damage")
+func _test_offense_pity(world: SimulationWorld) -> void:
+    world.reset_run()
+    world.elapsed_time = 600.0
+    world.level = 9
+    world.weapon_damage = GameConfig.NEEDLE_DAMAGE
+    world.weapon_cooldown = GameConfig.NEEDLE_COOLDOWN
+    world.weapon_projectile_count = GameConfig.NEEDLE_PROJECTILES
+    world.owned_weapons.assign(["needle"])
+
+    assert(world._estimated_sustained_dps() < world._required_sustained_dps(), "A weak early build must fall behind enemy-health growth")
+    assert(world._offense_pity_option_count() == 2, "A severely underpowered early build must guarantee two DPS choices")
+    var eligible_dps := world._eligible_dps_upgrades()
+    assert(eligible_dps.has("damage"), "Base Damage must be eligible for offense pity")
+    assert(eligible_dps.has("needle_fire_rate"), "Owned-weapon fire rate must be eligible for offense pity")
+    assert(eligible_dps.has("needle_projectile_count"), "Owned-weapon projectile count must be eligible for offense pity")
+    assert(not eligible_dps.has("sniper_fire_rate"), "Unowned weapon upgrades must not enter offense pity")
+    assert(not eligible_dps.has("needle_range"), "Range must not satisfy offense pity")
     for roll_index in range(20):
         var pity_options := world._roll_upgrade_options()
-        assert(pity_options.size() == 3, "Damage pity rolls must still contain three choices")
-        assert(pity_options.has("damage"), "Damage pity must guarantee a damage choice")
+        assert(pity_options.size() == 3, "Offense pity rolls must still contain three choices")
+        var dps_choice_count := 0
+        for upgrade_id in pity_options:
+            if GameConfig.DPS_UPGRADE_IDS.has(upgrade_id):
+                dps_choice_count += 1
+        assert(dps_choice_count >= 2, "Severe offense pity must guarantee two eligible DPS upgrades")
         assert(not pity_options.has("pickup_radius"), "Pickup radius must not return to upgrade rolls")
         assert(pity_options[0] != pity_options[1] and pity_options[0] != pity_options[2] and pity_options[1] != pity_options[2], "Upgrade choices must remain unique")
 
     world.weapon_damage = 100.0
-    assert(not world._is_damage_pity_active(), "Damage pity must turn off after damage catches up")
+    assert(world._offense_pity_option_count() == 0, "Offense pity must turn off after sustained DPS catches up")
+
+    world.weapon_damage = GameConfig.NEEDLE_DAMAGE
+    world.level = GameConfig.OFFENSE_PITY_MAX_LEVEL + 1
+    assert(world._offense_pity_option_count() == 0, "Offense pity must stop after level 30 so endless scaling can win")
 
 
 func _test_upgrade_roll_weights(world: SimulationWorld) -> void:
@@ -172,6 +193,9 @@ func _test_upgrade_roll_weights(world: SimulationWorld) -> void:
         )
     assert(is_equal_approx(world._upgrade_roll_weight("damage"), 1.0), "Damage must retain normal roll weight")
     assert(is_equal_approx(world._upgrade_roll_weight("move_speed"), 1.0), "Movement speed must retain normal roll weight")
+    assert(GameConfig.DPS_UPGRADE_IDS.has("damage"), "Base Damage must remain a DPS pity option")
+    assert(GameConfig.DPS_UPGRADE_IDS.has("needle_fire_rate"), "Weapon fire-rate upgrades must be valid DPS pity options")
+    assert(not GameConfig.DPS_UPGRADE_IDS.has("needle_range"), "Range must not satisfy the DPS pity system")
 
     world.rng.seed = 18071988
     var low_frequency_count := 0
@@ -419,6 +443,7 @@ func _test_weapon_firing_rules(world: SimulationWorld) -> void:
 
     # Aura echoes are distinct delayed pulses that recheck current targets.
     _clear_combat_state(world)
+    world.benchmark_mode = false
     world.owned_weapons.assign(["needle", "aura"])
     world.aura_echoes = 2
     world.aura_timer = 0.0
@@ -426,8 +451,14 @@ func _test_weapon_firing_rules(world: SimulationWorld) -> void:
     world._add_enemy(Vector2(400.0, 0.0), 100.0, 0.0, 0.0, 14.0, 0, SimulationWorld.EnemyKind.NORMAL, Vector2.ZERO)
     world.hit_targets.clear()
     world.hit_damage.clear()
+    var aura_sounds: Array[String] = []
+    var capture_aura_sound := func(cue: String) -> void:
+        if cue == "aura_pulse":
+            aura_sounds.append(cue)
+    world.sound_requested.connect(capture_aura_sound)
     world._update_aura(0.0)
     assert(world.hit_targets == [0], "The initial Aura pulse must hit each current in-range enemy once")
+    assert(aura_sounds.size() == 1, "Aura must play one bass cue on the initial cast")
     assert(world.aura_echoes_remaining == 2, "Aura upgrades must schedule delayed echo pulses")
     world._resolve_hits()
     assert(is_equal_approx(world.enemy_health[0], 88.0), "The initial Aura pulse must deal one damage instance")
@@ -438,6 +469,7 @@ func _test_weapon_firing_rules(world: SimulationWorld) -> void:
     world.hit_damage.clear()
     world._update_aura(GameConfig.AURA_ECHO_INTERVAL)
     assert(world.hit_targets == [1], "Each Aura echo must recheck which enemies are currently in range")
+    assert(aura_sounds.size() == 1, "Aura echoes must not replay the cast sound")
     assert(world.aura_echoes_remaining == 1, "One delayed Aura echo must remain after the first echo")
     world._resolve_hits()
     assert(is_equal_approx(world.enemy_health[1], 88.0), "A newly entered enemy must be hit by the delayed echo")
@@ -449,6 +481,8 @@ func _test_weapon_firing_rules(world: SimulationWorld) -> void:
     assert(world.aura_echoes_remaining == 0, "The Aura echo sequence must end after the configured pulse count")
     world._resolve_hits()
     assert(is_equal_approx(world.enemy_health[1], 76.0), "Two separate echoes must each deal one Aura damage instance")
+    assert(aura_sounds.size() == 1, "The full Aura echo sequence must use only one cast sound")
+    world.sound_requested.disconnect(capture_aura_sound)
 
     # Mire Field deploys with no target, persists, damages, and slows.
     _clear_combat_state(world)

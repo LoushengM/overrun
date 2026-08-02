@@ -17,6 +17,7 @@ Official pack pages:
 - https://kenney.nl/assets/music-jingles
 
 Kenney Sci-fi Sounds:
+- aura_pulse.wav <- lowFrequency_explosion_001.ogg (trimmed and filtered)
 - needle_fire.wav <- laserSmall_000.ogg
 - longshot_fire.wav <- laserLarge_002.ogg
 - mire_deploy.wav <- slime_000.ogg
@@ -24,7 +25,6 @@ Kenney Sci-fi Sounds:
 - boss_defeat.wav <- explosionCrunch_000.ogg
 
 Kenney Digital Audio:
-- aura_pulse.wav <- phaserUp3.ogg
 - last_stand.wav <- powerUp9.ogg
 - boss_telegraph.wav <- lowThreeTone.ogg
 - health_pickup.wav <- powerUp2.ogg

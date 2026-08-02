@@ -218,7 +218,7 @@ On level-up:
 - Draw without duplicate choices when possible.
 - Apply the selected upgrade immediately.
 - Preserve XP overflow.
-- Guarantee a Damage choice whenever current normal-enemy health exceeds 1.5 times the weapon's base projectile damage. This prevents utility-heavy RNG from allowing enemy health scaling to strand the build.
+- Through level 30, estimate sustained build DPS and compare it with current normal-enemy health using a 0.9-second target kill time. When output falls below the target, guarantee one eligible DPS-improving choice; below 65% of the target, guarantee two. Valid pity choices include Base Damage and owned-weapon fire-rate, projectile-count, Aura echo, and Mire uptime upgrades. The guarantee ends after level 30 so endless enemy scaling can still overtake the player.
 
 Global upgrades remain eligible indefinitely:
 
@@ -326,7 +326,7 @@ If the boss cap is reached, do not spawn another entity. Strengthen an existing 
 
 ## Audio feedback
 
-The MVP uses a bounded pool of non-positional one-shot sound players. Rapid combat cues have per-cue cooldowns and slight pitch variation so projectile and hit-heavy builds remain readable instead of producing unbounded overlapping audio. Important state changes—boss spawn and telegraph, boss defeat and reward, player damage and last-stand protection, health pickup, level-up, weapon unlock, targeting toggle, and run end—use distinct cues.
+The MVP uses a bounded pool of non-positional one-shot sound players. Rapid combat cues have per-cue cooldowns and slight pitch variation so projectile and hit-heavy builds remain readable instead of producing unbounded overlapping audio. Aura Pulse uses one bass-heavy cue on the initial cast; delayed echoes remain silent so upgraded echo chains do not become repetitive. Important state changes—boss spawn and telegraph, boss defeat and reward, player damage and last-stand protection, health pickup, level-up, weapon unlock, targeting toggle, and run end—use distinct cues.
 
 The initial clips are selected from Kenney CC0 audio packs. Only the chosen files and a source/license mapping are stored in the repository.
 

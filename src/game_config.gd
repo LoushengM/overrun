@@ -76,7 +76,13 @@ const FIELD_TICK_INTERVAL := 0.50
 const FIELD_SLOW_MULTIPLIER := 0.65
 const FIELD_CAP := 48
 
-const DAMAGE_PITY_SHOTS_TO_KILL := 1.50
+const OFFENSE_PITY_MAX_LEVEL := 30
+const OFFENSE_PITY_TARGET_TTK := 0.90
+const OFFENSE_PITY_SEVERE_RATIO := 0.65
+const NEEDLE_EXTRA_PROJECTILE_DPS_FACTOR := 0.50
+const AURA_DPS_UPTIME_FACTOR := 0.75
+const FIELD_DPS_OVERLAP_FACTOR := 0.35
+const FIELD_DPS_MAX_EQUIVALENTS := 2.0
 
 const ENEMY_CAP := 1450
 const PROJECTILE_CAP := 16384
@@ -130,6 +136,16 @@ const GLOBAL_UPGRADE_IDS := [
 ]
 
 const LOW_FREQUENCY_UPGRADE_WEIGHT := 0.20
+const DPS_UPGRADE_IDS := [
+    "damage",
+    "needle_fire_rate",
+    "needle_projectile_count",
+    "sniper_fire_rate",
+    "aura_fire_rate",
+    "aura_echoes",
+    "field_fire_rate",
+    "field_duration",
+]
 const UPGRADE_ROLL_WEIGHTS := {
     "max_health": LOW_FREQUENCY_UPGRADE_WEIGHT,
     "armor": LOW_FREQUENCY_UPGRADE_WEIGHT,
