@@ -29,5 +29,8 @@ if [[ ! -s dist/Overrun.exe ]]; then
   exit 1
 fi
 
-sha256sum dist/Overrun.exe > dist/Overrun.exe.sha256
+(
+  cd dist
+  sha256sum Overrun.exe > Overrun.exe.sha256
+)
 ls -lh dist/Overrun.exe dist/Overrun.exe.sha256

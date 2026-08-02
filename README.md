@@ -71,7 +71,25 @@ Install the matching Godot export templates, then run:
 GODOT_BIN=/path/to/godot ./scripts/package.sh
 ```
 
-The packaged executable is written to `dist/Overrun.exe` with its resource pack embedded.
+The packaged executable is written to `dist/Overrun.exe` with its resource pack embedded. The checksum file uses the portable filename `Overrun.exe`, so both files can be verified from the same directory with `sha256sum -c Overrun.exe.sha256`.
+
+## Publish rolling test build
+
+With GitHub CLI authenticated, publish the current clean commit to the rolling `dev` prerelease:
+
+```bash
+./scripts/publish.sh
+```
+
+The publisher rebuilds the executable, verifies the local checksum and PE format, replaces both release assets, moves the `dev` tag to the published commit, downloads the assets again, and verifies the remote checksum. It refuses a dirty worktree unless `ALLOW_DIRTY=1` is set intentionally.
+
+The executable keeps a stable authenticated download URL:
+
+```text
+https://github.com/LoushengM/overrun/releases/download/dev/Overrun.exe
+```
+
+The repository is private, so downloaders must have access to it. The matching `Overrun.exe.sha256` asset is published beside the executable.
 
 ## Code map
 
