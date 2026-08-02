@@ -745,7 +745,7 @@ func _process_deaths() -> void:
             continue
 
         kills += 1
-        xp += enemy_xp[i]
+        xp += maxi(1, int(round(float(enemy_xp[i]) * GameConfig.GAME_PACE_MULTIPLIER)))
         if enemy_kinds[i] == EnemyKind.BOSS:
             pending_boss_rewards += 1
             boss_defeated = true
@@ -774,6 +774,14 @@ func _update_regeneration(delta: float) -> void:
     player_health = minf(ceiling, player_health + player_max_health * player_regen_rate * delta)
 
 
+func _paced_elapsed_time() -> float:
+    return elapsed_time * GameConfig.GAME_PACE_MULTIPLIER
+
+
+func _paced_minutes() -> float:
+    return _paced_elapsed_time() / 60.0
+
+
 func _update_spawning(delta: float) -> void:
     if benchmark_mode:
         return
@@ -793,8 +801,11 @@ func _update_spawning(delta: float) -> void:
         surge_active = true
         surge_time = 0.0
 
-    var minutes := elapsed_time / 60.0
-    var base_rate := minf(150.0, 8.0 + 3.0 * minutes + 0.8 * minutes * minutes)
+    var minutes := _paced_minutes()
+    var base_rate := GameConfig.GAME_PACE_MULTIPLIER * minf(
+        150.0,
+        8.0 + 3.0 * minutes + 0.8 * minutes * minutes
+    )
     var surge_multiplier := 1.0
     if surge_active:
         surge_multiplier = 1.0 + 3.0 * minf(1.0, surge_time / GameConfig.SURGE_RAMP_TIME)
@@ -813,7 +824,7 @@ func _update_spawning(delta: float) -> void:
 func _update_boss_schedule() -> void:
     if benchmark_mode:
         return
-    if elapsed_time < next_boss_time:
+    if _paced_elapsed_time() < next_boss_time:
         return
     next_boss_time += GameConfig.BOSS_INTERVAL
     if get_boss_count() >= GameConfig.BOSS_CAP:
@@ -831,7 +842,7 @@ func _spawn_normal_enemy() -> void:
         angle = player_move_direction.angle() + rng.randf_range(-0.55, 0.55)
     var view_scale := _camera_view_scale()
     var distance := rng.randf_range(760.0 * view_scale, 1040.0 * view_scale)
-    var minutes := elapsed_time / 60.0
+    var minutes := _paced_minutes()
     var damage_scale := 1.0 + 0.10 * minutes + 0.020 * minutes * minutes
     _add_enemy(
         player_position + Vector2.from_angle(angle) * distance,
@@ -846,7 +857,7 @@ func _spawn_normal_enemy() -> void:
 
 
 func _current_normal_speed_scale() -> float:
-    var minutes := elapsed_time / 60.0
+    var minutes := _paced_minutes()
     return (
         1.0
         + GameConfig.NORMAL_ENEMY_SPEED_SCALE_PER_MINUTE * minutes
@@ -855,7 +866,7 @@ func _current_normal_speed_scale() -> float:
 
 
 func _current_boss_speed_scale() -> float:
-    var minutes := elapsed_time / 60.0
+    var minutes := _paced_minutes()
     return 1.0 + GameConfig.BOSS_SPEED_SCALE_PER_MINUTE * minutes
 
 
@@ -880,7 +891,7 @@ func _spawn_boss() -> void:
     var view_scale := _camera_view_scale()
     var distance := rng.randf_range(1050.0 * view_scale, 1450.0 * view_scale)
     var position := player_position + Vector2.from_angle(angle) * distance
-    var minutes := elapsed_time / 60.0
+    var minutes := _paced_minutes()
     var damage_scale := 1.0 + 0.14 * minutes + 0.025 * minutes * minutes
     _add_enemy(
         position,
@@ -1155,13 +1166,13 @@ func _roll_weapon_upgrade_options() -> Array[String]:
 
 
 func _current_normal_enemy_health() -> float:
-    var minutes := elapsed_time / 60.0
+    var minutes := _paced_minutes()
     var health_scale := 1.0 + 0.12 * minutes + 0.025 * minutes * minutes
     return GameConfig.NORMAL_ENEMY_HEALTH * health_scale
 
 
 func _current_boss_health() -> float:
-    var minutes := elapsed_time / 60.0
+    var minutes := _paced_minutes()
     var health_scale := (
         1.0
         + GameConfig.BOSS_HEALTH_SCALE_LINEAR * minutes
@@ -1479,6 +1490,8 @@ func get_stats_snapshot() -> Dictionary:
         "xp": xp,
         "xp_required": xp_required,
         "elapsed": elapsed_time,
+        "game_pace": GameConfig.GAME_PACE_MULTIPLIER,
+        "paced_elapsed": _paced_elapsed_time(),
         "kills": kills,
         "enemies": enemy_positions.size(),
         "projectiles": projectile_positions.size(),

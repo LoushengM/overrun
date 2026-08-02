@@ -9,6 +9,7 @@ The repository intentionally favors a small playable loop over a content framewo
 - One playable character, Runner
 - A four-slot weapon roster: Needle, Longshot, Aura Pulse, and Mire Field
 - An array-based enemy and projectile simulation with batched rendering
+- A 2× compressed progression clock: doubled XP rewards and spawn throughput, half-time bosses, and twice-as-fast enemy scaling
 - XP with three-choice paused level-ups and level-30 DPS-tracking offense pity
 - Infinite global damage scaling plus distinct capped upgrade pools, weighted utility rolls, and strongly scaling Longshot projectile size
 - Armor with diminishing returns, brief post-hit invulnerability frames, and lethal-hit protection above 50% HP

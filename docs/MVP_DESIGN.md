@@ -193,9 +193,11 @@ Rewards:
 
 | Source | XP |
 |---|---:|
-| Normal enemy | 1 |
-| Elite | 5 |
-| Boss | 20 |
+| Normal enemy | 2 |
+| Elite | 10 |
+| Boss | 40 |
+
+The underlying source values are multiplied by the global 2× game-pace setting. This doubles player progression without changing the XP requirement curve.
 
 For level `L`, beginning at `L = 1`, use:
 
@@ -271,7 +273,7 @@ A mild pity system may be added after ordinary random drops are tested. Do not t
 
 ## 12. Spawning and anti-lull behavior
 
-Enemies spawn just outside the visible camera region. The base spawn rate rises over elapsed time until the simulation reaches its entity budget.
+Enemies spawn just outside the visible camera region. The base spawn rate rises over elapsed time until the simulation reaches its entity budget. The global 2× game pace doubles spawn throughput, including the opening rate from 8 to 16 normal enemies per second.
 
 Track **nearby threat**, not only the total world population. Bosses abandoned across the map should not prevent nearby normal enemies from spawning.
 
@@ -310,11 +312,11 @@ Bosses are added only after the first playable slice works.
 
 The first boss should:
 
-- Spawn without pausing or moving the camera.
+- Spawn without pausing or moving the camera. The first boss arrives at 22.5 real seconds and later boss checks occur every 45 real seconds under the 2× progression clock.
 - Appear one to two screens away.
 - Persist if ignored.
 - Patrol or pursue within a broad region rather than following forever at any distance.
-- Award 20 XP and queue a paused weapon-only reward. Guarantee a new weapon while a slot remains; otherwise offer eligible upgrades from owned weapon pools.
+- Award 40 XP under the 2× pace setting and queue a paused weapon-only reward. Guarantee a new weapon while a slot remains; otherwise offer eligible upgrades from owned weapon pools.
 - Never drop a health pickup.
 - Scale health as `550 × (1 + minutes + 0.20 × minutes²)`.
 - After a full-damage hit, gain 0.35 seconds of 80% damage mitigation. This is resistance, not invulnerability, and raw projectile damage budget is still consumed.
@@ -343,6 +345,8 @@ The MVP demo minimap shows:
 Normal enemies are not shown. Boss markers remain visible regardless of distance and communicate active pursuit with a pulse or other simple state change.
 
 ## 16. Scaling
+
+The run uses a global **2× progression clock**. Displayed time remains real elapsed time, but enemy scaling and boss milestones evaluate twice that value. Spawn throughput and XP rewards are also doubled. Weapon cooldowns, movement, damage-over-time ticks, telegraphs, invulnerability, and other moment-to-moment combat timings remain in real time.
 
 Time increases pressure through a small number of tunable curves:
 

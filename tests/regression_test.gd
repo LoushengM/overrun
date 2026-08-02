@@ -22,6 +22,7 @@ func _run() -> void:
     _test_upgrade_roll_weights(world)
     _test_player_invulnerability(world)
     _test_speed_upgrade_camera_zoom(world)
+    _test_game_pace_scaling(world)
     _test_enemy_speed_scaling(world)
     _test_boss_scaling_and_protection(world)
     _test_weapon_slots_and_boss_rewards(scene, world, hud)
@@ -261,6 +262,40 @@ func _test_speed_upgrade_camera_zoom(world: SimulationWorld) -> void:
     assert(spawn_distance <= 1040.0 * 1.10 + 0.01, "Zoom-scaled normal spawn distance must retain its upper bound")
 
 
+func _test_game_pace_scaling(world: SimulationWorld) -> void:
+    assert(is_equal_approx(GameConfig.GAME_PACE_MULTIPLIER, 2.0), "The run progression clock must be doubled")
+    assert(GameConfig.MAX_SPAWNS_PER_TICK == 24, "The per-tick spawn cap must scale with the doubled throughput")
+
+    world.reset_run()
+    _clear_combat_state(world)
+    world.elapsed_time = 15.0
+    assert(is_equal_approx(world._paced_elapsed_time(), 30.0), "The progression clock must advance twice as fast as displayed run time")
+
+    world.xp = 0
+    world._add_enemy(Vector2.ZERO, 0.0, 0.0, 0.0, 14.0, GameConfig.NORMAL_ENEMY_XP, SimulationWorld.EnemyKind.NORMAL, Vector2.ZERO)
+    world._process_deaths()
+    assert(world.xp == 2, "Normal enemy XP rewards must double with game pace")
+
+    _clear_combat_state(world)
+    world.elapsed_time = 0.0
+    world.player_position = Vector2.ZERO
+    world.spawn_accumulator = 0.0
+    world.surge_active = false
+    world.surge_cooldown = 999.0
+    world.threat_check_timer = 999.0
+    world._update_spawning(0.50)
+    assert(world.enemy_positions.size() == 8, "Opening spawn throughput must double from 8 to 16 enemies per second")
+
+    _clear_combat_state(world)
+    world.next_boss_time = GameConfig.FIRST_BOSS_TIME
+    world.elapsed_time = GameConfig.FIRST_BOSS_TIME / GameConfig.GAME_PACE_MULTIPLIER - 0.01
+    world._update_boss_schedule()
+    assert(world.get_boss_count() == 0, "The first boss must not spawn before 22.5 real seconds")
+    world.elapsed_time = GameConfig.FIRST_BOSS_TIME / GameConfig.GAME_PACE_MULTIPLIER
+    world._update_boss_schedule()
+    assert(world.get_boss_count() == 1, "The first boss must spawn at 22.5 real seconds under 2x pace")
+
+
 func _test_enemy_speed_scaling(world: SimulationWorld) -> void:
     _clear_combat_state(world)
     world.player_position = Vector2.ZERO
@@ -271,9 +306,9 @@ func _test_enemy_speed_scaling(world: SimulationWorld) -> void:
     assert(is_equal_approx(world.enemy_positions[0].x, 950.0), "Normal enemies must use base speed at run start")
 
     world.enemy_positions[0] = Vector2(1000.0, 0.0)
-    world.elapsed_time = 600.0
+    world.elapsed_time = 300.0
     world._update_enemies(0.50)
-    assert(is_equal_approx(world.enemy_positions[0].x, 910.0), "Existing normal enemies must accelerate as run time increases")
+    assert(is_equal_approx(world.enemy_positions[0].x, 910.0), "Five real minutes must reach the old ten-minute enemy speed")
 
     world.enemy_positions[0] = Vector2(2000.0, 0.0)
     world.elapsed_time = 0.0
@@ -292,8 +327,8 @@ func _test_enemy_speed_scaling(world: SimulationWorld) -> void:
 
 
 func _test_boss_scaling_and_protection(world: SimulationWorld) -> void:
-    world.elapsed_time = 300.0
-    assert(is_equal_approx(world._current_boss_health(), 6050.0), "Boss health must scale aggressively by five minutes")
+    world.elapsed_time = 150.0
+    assert(is_equal_approx(world._current_boss_health(), 6050.0), "Two and a half real minutes must reach the old five-minute boss health")
 
     _clear_combat_state(world)
     world.elapsed_time = 0.0
