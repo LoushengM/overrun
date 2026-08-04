@@ -12,9 +12,10 @@ const SPRITE_ATLAS_PATH := "res://assets/robots.png"
 const SPRITE_ATLAS_COLUMNS := 4
 const SPRITE_ATLAS_ROWS := 2
 const SPRITE_FRAME_COUNT := SPRITE_ATLAS_COLUMNS * SPRITE_ATLAS_ROWS
-const NORMAL_SPRITE_FRAME_COUNT := SPRITE_FRAME_COUNT - 1
 
 enum EnemyKind { NORMAL, BOSS }
+enum EnemyArchetype { GRUNT, SWARMER, SHIELDED, RANGED, SPLITTER, ELITE }
+const ARCHETYPE_COUNT := 6
 enum ProjectileKind { NEEDLE, SNIPER }
 enum TargetingMode { CLOSEST, STRONGEST }
 
@@ -94,6 +95,14 @@ var enemy_damage: Array[float] = []
 var enemy_radii: Array[float] = []
 var enemy_xp: Array[int] = []
 var enemy_kinds: Array[int] = []
+var enemy_archetypes: Array[int] = []
+var enemy_fire_timers: Array[float] = []
+var enemy_shot_positions: Array[Vector2] = []
+var enemy_shot_velocities: Array[Vector2] = []
+var enemy_shot_lifetimes: Array[float] = []
+var enemy_shot_damage: Array[float] = []
+var pending_split_positions: Array[Vector2] = []
+var pending_split_health: Array[float] = []
 var enemy_sprite_frames: Array[int] = []
 var enemy_last_hit_attack: Array[int] = []
 var enemy_reserved_damage: Array[float] = []
@@ -160,6 +169,14 @@ func reset_run() -> void:
     enemy_radii.clear()
     enemy_xp.clear()
     enemy_kinds.clear()
+    enemy_archetypes.clear()
+    enemy_fire_timers.clear()
+    enemy_shot_positions.clear()
+    enemy_shot_velocities.clear()
+    enemy_shot_lifetimes.clear()
+    enemy_shot_damage.clear()
+    pending_split_positions.clear()
+    pending_split_health.clear()
     enemy_sprite_frames.clear()
     enemy_last_hit_attack.clear()
     enemy_reserved_damage.clear()
@@ -295,6 +312,14 @@ func enable_benchmark() -> void:
     enemy_radii.clear()
     enemy_xp.clear()
     enemy_kinds.clear()
+    enemy_archetypes.clear()
+    enemy_fire_timers.clear()
+    enemy_shot_positions.clear()
+    enemy_shot_velocities.clear()
+    enemy_shot_lifetimes.clear()
+    enemy_shot_damage.clear()
+    pending_split_positions.clear()
+    pending_split_health.clear()
     enemy_sprite_frames.clear()
     enemy_last_hit_attack.clear()
     enemy_reserved_damage.clear()
@@ -333,6 +358,7 @@ func _physics_process(delta: float) -> void:
 
     _update_player(delta)
     _update_enemies(delta)
+    _update_enemy_shots(delta)
     if not is_running:
         _emit_stats()
         queue_redraw()
@@ -415,6 +441,17 @@ func _update_enemies(delta: float) -> void:
         else:
             if distance_to_player > 0.001:
                 direction = to_player / distance_to_player
+            if enemy_archetypes[i] == EnemyArchetype.RANGED:
+                if distance_to_player < GameConfig.ARCHETYPE_RANGED_STANDOFF:
+                    direction = -direction
+                enemy_fire_timers[i] -= delta
+                if enemy_fire_timers[i] <= 0.0:
+                    enemy_fire_timers[i] = (
+                        GameConfig.ARCHETYPE_RANGED_FIRE_INTERVAL
+                        + rng.randf_range(0.0, GameConfig.ARCHETYPE_RANGED_FIRE_INTERVAL_JITTER)
+                    )
+                    if distance_to_player <= GameConfig.ARCHETYPE_RANGED_STANDOFF * 2.0 and distance_to_player > 0.001:
+                        _spawn_enemy_shot(position, to_player / distance_to_player, enemy_damage[i])
 
         var movement_multiplier := _current_boss_speed_scale() if enemy_kinds[i] == EnemyKind.BOSS else _current_normal_speed_scale()
         if enemy_kinds[i] == EnemyKind.NORMAL:
@@ -782,11 +819,74 @@ func _process_deaths() -> void:
         if enemy_kinds[i] == EnemyKind.BOSS:
             pending_boss_rewards += 1
             boss_defeated = true
-        elif pickup_positions.size() < GameConfig.PICKUP_CAP and rng.randf() < GameConfig.HEALTH_PICKUP_DROP_CHANCE:
-            _spawn_health_pickup(enemy_positions[i])
+        else:
+            # Children are queued, not spawned inline: _remove_enemy swaps the
+            # last element into slot i, so appending mid-loop would shuffle an
+            # unvisited entity into an index the reverse walk has passed.
+            if enemy_archetypes[i] == EnemyArchetype.SPLITTER:
+                _queue_split(enemy_positions[i])
+            if pickup_positions.size() < GameConfig.PICKUP_CAP and rng.randf() < GameConfig.HEALTH_PICKUP_DROP_CHANCE:
+                _spawn_health_pickup(enemy_positions[i])
         _remove_enemy(i)
+    _drain_pending_splits()
     if boss_defeated:
         _request_sound("boss_defeat")
+
+
+func _queue_split(position: Vector2) -> void:
+    for child in range(GameConfig.ARCHETYPE_SPLITTER_CHILD_COUNT):
+        var offset := Vector2.from_angle(rng.randf_range(0.0, TAU)) * GameConfig.ARCHETYPE_SPLITTER_CHILD_SCATTER
+        pending_split_positions.append(WorldSpace.wrap_position(position + offset))
+        pending_split_health.append(1.0 / float(GameConfig.ARCHETYPE_SPLITTER_CHILD_COUNT))
+
+
+func _drain_pending_splits() -> void:
+    for i in range(pending_split_positions.size()):
+        _spawn_archetype(pending_split_positions[i], EnemyArchetype.SWARMER, pending_split_health[i])
+    pending_split_positions.clear()
+    pending_split_health.clear()
+
+
+func _spawn_enemy_shot(origin: Vector2, direction: Vector2, damage_value: float) -> void:
+    if enemy_shot_positions.size() >= GameConfig.ENEMY_SHOT_CAP:
+        return
+    enemy_shot_positions.append(WorldSpace.wrap_position(origin + direction * 18.0))
+    enemy_shot_velocities.append(direction * GameConfig.ARCHETYPE_RANGED_SHOT_SPEED)
+    enemy_shot_lifetimes.append(GameConfig.ARCHETYPE_RANGED_SHOT_LIFETIME)
+    enemy_shot_damage.append(damage_value)
+
+
+# Enemy shots only ever test against the player, so they skip the enemy grid
+# entirely: one distance check each, no spatial query.
+func _update_enemy_shots(delta: float) -> void:
+    var hit_radius := GameConfig.PLAYER_RADIUS + GameConfig.ARCHETYPE_RANGED_SHOT_RADIUS
+    var hit_radius_squared := hit_radius * hit_radius
+    for i in range(enemy_shot_positions.size() - 1, -1, -1):
+        enemy_shot_lifetimes[i] -= delta
+        if enemy_shot_lifetimes[i] <= 0.0:
+            _remove_enemy_shot(i)
+            continue
+        enemy_shot_positions[i] = WorldSpace.wrap_position(
+            enemy_shot_positions[i] + enemy_shot_velocities[i] * delta
+        )
+        if WorldSpace.distance_squared(enemy_shot_positions[i], player_position) <= hit_radius_squared:
+            _apply_player_damage(enemy_shot_damage[i], true)
+            _remove_enemy_shot(i)
+            if not is_running:
+                return
+
+
+func _remove_enemy_shot(index: int) -> void:
+    var last := enemy_shot_positions.size() - 1
+    if index != last:
+        enemy_shot_positions[index] = enemy_shot_positions[last]
+        enemy_shot_velocities[index] = enemy_shot_velocities[last]
+        enemy_shot_lifetimes[index] = enemy_shot_lifetimes[last]
+        enemy_shot_damage[index] = enemy_shot_damage[last]
+    enemy_shot_positions.pop_back()
+    enemy_shot_velocities.pop_back()
+    enemy_shot_lifetimes.pop_back()
+    enemy_shot_damage.pop_back()
 
 
 func _update_pickups() -> void:
@@ -875,17 +975,115 @@ func _spawn_normal_enemy() -> void:
         angle = player_move_direction.angle() + rng.randf_range(-0.55, 0.55)
     var view_scale := _camera_view_scale()
     var distance := rng.randf_range(760.0 * view_scale, 1040.0 * view_scale)
+    var spawn_position := WorldSpace.wrap_position(player_position + Vector2.from_angle(angle) * distance)
+    _spawn_archetype(spawn_position, _pick_archetype(_paced_minutes()), 1.0)
+
+
+# Stat scales packed into a Vector4 (health, speed, damage, radius) so archetype
+# lookup stays allocation-free on the spawn path.
+func _archetype_stat_scale(archetype: int) -> Vector4:
+    match archetype:
+        EnemyArchetype.SWARMER:
+            return Vector4(
+                GameConfig.ARCHETYPE_SWARMER_HEALTH,
+                GameConfig.ARCHETYPE_SWARMER_SPEED,
+                GameConfig.ARCHETYPE_SWARMER_DAMAGE,
+                GameConfig.ARCHETYPE_SWARMER_RADIUS
+            )
+        EnemyArchetype.SHIELDED:
+            return Vector4(
+                GameConfig.ARCHETYPE_SHIELDED_HEALTH,
+                GameConfig.ARCHETYPE_SHIELDED_SPEED,
+                GameConfig.ARCHETYPE_SHIELDED_DAMAGE,
+                GameConfig.ARCHETYPE_SHIELDED_RADIUS
+            )
+        EnemyArchetype.RANGED:
+            return Vector4(
+                GameConfig.ARCHETYPE_RANGED_HEALTH,
+                GameConfig.ARCHETYPE_RANGED_SPEED,
+                GameConfig.ARCHETYPE_RANGED_DAMAGE,
+                GameConfig.ARCHETYPE_RANGED_RADIUS
+            )
+        EnemyArchetype.SPLITTER:
+            return Vector4(
+                GameConfig.ARCHETYPE_SPLITTER_HEALTH,
+                GameConfig.ARCHETYPE_SPLITTER_SPEED,
+                GameConfig.ARCHETYPE_SPLITTER_DAMAGE,
+                GameConfig.ARCHETYPE_SPLITTER_RADIUS
+            )
+        EnemyArchetype.ELITE:
+            return Vector4(
+                GameConfig.ARCHETYPE_ELITE_HEALTH,
+                GameConfig.ARCHETYPE_ELITE_SPEED,
+                GameConfig.ARCHETYPE_ELITE_DAMAGE,
+                GameConfig.ARCHETYPE_ELITE_RADIUS
+            )
+        _:
+            return Vector4.ONE
+
+
+func _archetype_xp(archetype: int) -> int:
+    match archetype:
+        EnemyArchetype.SWARMER:
+            return GameConfig.ARCHETYPE_SWARMER_XP
+        EnemyArchetype.SHIELDED:
+            return GameConfig.ARCHETYPE_SHIELDED_XP
+        EnemyArchetype.RANGED:
+            return GameConfig.ARCHETYPE_RANGED_XP
+        EnemyArchetype.SPLITTER:
+            return GameConfig.ARCHETYPE_SPLITTER_XP
+        EnemyArchetype.ELITE:
+            return GameConfig.ARCHETYPE_ELITE_XP
+        _:
+            return GameConfig.NORMAL_ENEMY_XP
+
+
+func _archetype_weight(archetype: int, minutes: float) -> float:
+    match archetype:
+        EnemyArchetype.SWARMER:
+            return GameConfig.ARCHETYPE_SWARMER_WEIGHT if minutes >= GameConfig.ARCHETYPE_SWARMER_UNLOCK_MINUTES else 0.0
+        EnemyArchetype.SHIELDED:
+            return GameConfig.ARCHETYPE_SHIELDED_WEIGHT if minutes >= GameConfig.ARCHETYPE_SHIELDED_UNLOCK_MINUTES else 0.0
+        EnemyArchetype.RANGED:
+            return GameConfig.ARCHETYPE_RANGED_WEIGHT if minutes >= GameConfig.ARCHETYPE_RANGED_UNLOCK_MINUTES else 0.0
+        EnemyArchetype.SPLITTER:
+            return GameConfig.ARCHETYPE_SPLITTER_WEIGHT if minutes >= GameConfig.ARCHETYPE_SPLITTER_UNLOCK_MINUTES else 0.0
+        EnemyArchetype.ELITE:
+            return GameConfig.ARCHETYPE_ELITE_WEIGHT if minutes >= GameConfig.ARCHETYPE_ELITE_UNLOCK_MINUTES else 0.0
+        _:
+            return GameConfig.ARCHETYPE_GRUNT_WEIGHT
+
+
+func _pick_archetype(minutes: float) -> int:
+    var total := 0.0
+    for archetype in range(ARCHETYPE_COUNT):
+        total += _archetype_weight(archetype, minutes)
+    if total <= 0.0:
+        return EnemyArchetype.GRUNT
+    var roll := rng.randf() * total
+    for archetype in range(ARCHETYPE_COUNT):
+        roll -= _archetype_weight(archetype, minutes)
+        if roll <= 0.0:
+            return archetype
+    return EnemyArchetype.GRUNT
+
+
+func _spawn_archetype(position: Vector2, archetype: int, health_multiplier: float) -> void:
+    if enemy_positions.size() >= GameConfig.ENEMY_CAP:
+        return
     var minutes := _paced_minutes()
     var damage_scale := 1.0 + 0.10 * minutes + 0.020 * minutes * minutes
+    var scale := _archetype_stat_scale(archetype)
     _add_enemy(
-        WorldSpace.wrap_position(player_position + Vector2.from_angle(angle) * distance),
-        _current_normal_enemy_health(),
-        GameConfig.NORMAL_ENEMY_SPEED,
-        GameConfig.NORMAL_ENEMY_DAMAGE * damage_scale,
-        GameConfig.NORMAL_ENEMY_RADIUS,
-        GameConfig.NORMAL_ENEMY_XP,
+        position,
+        _current_normal_enemy_health() * scale.x * health_multiplier,
+        GameConfig.NORMAL_ENEMY_SPEED * scale.y,
+        GameConfig.NORMAL_ENEMY_DAMAGE * damage_scale * scale.z,
+        GameConfig.NORMAL_ENEMY_RADIUS * scale.w,
+        _archetype_xp(archetype),
         EnemyKind.NORMAL,
-        Vector2.ZERO
+        Vector2.ZERO,
+        archetype
     )
 
 
@@ -946,7 +1144,8 @@ func _add_enemy(
     radius_value: float,
     xp_value: int,
     kind_value: int,
-    anchor_value: Vector2
+    anchor_value: Vector2,
+    archetype_value: int = EnemyArchetype.GRUNT
 ) -> void:
     enemy_positions.append(position)
     enemy_health.append(health_value)
@@ -956,7 +1155,9 @@ func _add_enemy(
     enemy_radii.append(radius_value)
     enemy_xp.append(xp_value)
     enemy_kinds.append(kind_value)
-    enemy_sprite_frames.append(_sprite_frame_for(kind_value, position))
+    enemy_archetypes.append(archetype_value)
+    enemy_fire_timers.append(_initial_fire_timer(archetype_value))
+    enemy_sprite_frames.append(_sprite_frame_for(kind_value, archetype_value))
     enemy_last_hit_attack.append(0)
     enemy_reserved_damage.append(0.0)
     enemy_anchors.append(anchor_value)
@@ -965,11 +1166,31 @@ func _add_enemy(
     enemy_boss_hit_protection_timer.append(0.0)
 
 
-func _sprite_frame_for(kind_value: int, position: Vector2) -> int:
+func _sprite_frame_for(kind_value: int, archetype_value: int) -> int:
     if kind_value == EnemyKind.BOSS:
         return SPRITE_FRAME_COUNT - 1
-    var seed_value := int(position.x) * 73856093 ^ int(position.y) * 19349663
-    return absi(seed_value) % NORMAL_SPRITE_FRAME_COUNT
+    match archetype_value:
+        EnemyArchetype.SWARMER:
+            return 1
+        EnemyArchetype.SHIELDED:
+            return 2
+        EnemyArchetype.RANGED:
+            return 3
+        EnemyArchetype.SPLITTER:
+            return 4
+        EnemyArchetype.ELITE:
+            # Frame 7 is the crowned elite chassis in tools/generate_sprite_atlas.gd.
+            # Frames 5 (heavy) and 6 (skitter) are drawn but unclaimed by any
+            # archetype yet.
+            return 7
+        _:
+            return 0
+
+
+func _initial_fire_timer(archetype_value: int) -> float:
+    if archetype_value != EnemyArchetype.RANGED:
+        return 0.0
+    return GameConfig.ARCHETYPE_RANGED_FIRE_INTERVAL * rng.randf_range(0.35, 1.0)
 
 
 func _spawn_health_pickup(position: Vector2) -> void:
@@ -1439,6 +1660,8 @@ func _remove_enemy(index: int) -> void:
         enemy_radii[index] = enemy_radii[last]
         enemy_xp[index] = enemy_xp[last]
         enemy_kinds[index] = enemy_kinds[last]
+        enemy_archetypes[index] = enemy_archetypes[last]
+        enemy_fire_timers[index] = enemy_fire_timers[last]
         enemy_sprite_frames[index] = enemy_sprite_frames[last]
         enemy_last_hit_attack[index] = enemy_last_hit_attack[last]
         enemy_reserved_damage[index] = enemy_reserved_damage[last]
@@ -1454,6 +1677,8 @@ func _remove_enemy(index: int) -> void:
     enemy_radii.pop_back()
     enemy_xp.pop_back()
     enemy_kinds.pop_back()
+    enemy_archetypes.pop_back()
+    enemy_fire_timers.pop_back()
     enemy_sprite_frames.pop_back()
     enemy_last_hit_attack.pop_back()
     enemy_reserved_damage.pop_back()
@@ -1704,6 +1929,11 @@ func _draw() -> void:
             draw_circle(position, 11.0, Color(0.25, 0.95, 0.45, 0.95))
             draw_line(position + Vector2(-6.0, 0.0), position + Vector2(6.0, 0.0), Color.WHITE, 3.0)
             draw_line(position + Vector2(0.0, -6.0), position + Vector2(0.0, 6.0), Color.WHITE, 3.0)
+
+    for raw_shot_position in enemy_shot_positions:
+        var shot_position := WorldSpace.nearest_image(player_position, raw_shot_position)
+        if _is_near_view(shot_position, visible_half):
+            draw_circle(shot_position, GameConfig.ARCHETYPE_RANGED_SHOT_RADIUS, Color(1.0, 0.35, 0.25, 0.95))
 
     if normal_enemy_multimesh != null and sprite_atlas_texture != null:
         draw_multimesh(normal_enemy_multimesh, sprite_atlas_texture)
