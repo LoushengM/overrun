@@ -8,6 +8,12 @@ signal run_ended(summary: Dictionary)
 signal boss_spawned
 signal sound_requested(cue: String)
 
+const SPRITE_ATLAS_PATH := "res://assets/robots.png"
+const SPRITE_ATLAS_COLUMNS := 4
+const SPRITE_ATLAS_ROWS := 2
+const SPRITE_FRAME_COUNT := SPRITE_ATLAS_COLUMNS * SPRITE_ATLAS_ROWS
+const NORMAL_SPRITE_FRAME_COUNT := SPRITE_FRAME_COUNT - 1
+
 enum EnemyKind { NORMAL, BOSS }
 enum ProjectileKind { NEEDLE, SNIPER }
 enum TargetingMode { CLOSEST, STRONGEST }
@@ -88,6 +94,7 @@ var enemy_damage: Array[float] = []
 var enemy_radii: Array[float] = []
 var enemy_xp: Array[int] = []
 var enemy_kinds: Array[int] = []
+var enemy_sprite_frames: Array[int] = []
 var enemy_last_hit_attack: Array[int] = []
 var enemy_reserved_damage: Array[float] = []
 var enemy_anchors: Array[Vector2] = []
@@ -121,6 +128,8 @@ var grid_bucket_pool: Array = []
 var normal_enemy_multimesh: MultiMesh
 var projectile_multimesh: MultiMesh
 var circle_texture: Texture2D
+var sprite_atlas_texture: Texture2D
+var enemy_sprite_material: ShaderMaterial
 
 var spawn_accumulator := 0.0
 var nearby_threat := 0
@@ -151,6 +160,7 @@ func reset_run() -> void:
     enemy_radii.clear()
     enemy_xp.clear()
     enemy_kinds.clear()
+    enemy_sprite_frames.clear()
     enemy_last_hit_attack.clear()
     enemy_reserved_damage.clear()
     enemy_anchors.clear()
@@ -285,6 +295,7 @@ func enable_benchmark() -> void:
     enemy_radii.clear()
     enemy_xp.clear()
     enemy_kinds.clear()
+    enemy_sprite_frames.clear()
     enemy_last_hit_attack.clear()
     enemy_reserved_damage.clear()
     enemy_anchors.clear()
@@ -945,12 +956,20 @@ func _add_enemy(
     enemy_radii.append(radius_value)
     enemy_xp.append(xp_value)
     enemy_kinds.append(kind_value)
+    enemy_sprite_frames.append(_sprite_frame_for(kind_value, position))
     enemy_last_hit_attack.append(0)
     enemy_reserved_damage.append(0.0)
     enemy_anchors.append(anchor_value)
     enemy_boss_attack_timer.append(rng.randf_range(1.5, 3.0) if kind_value == EnemyKind.BOSS else 0.0)
     enemy_boss_telegraph.append(0.0)
     enemy_boss_hit_protection_timer.append(0.0)
+
+
+func _sprite_frame_for(kind_value: int, position: Vector2) -> int:
+    if kind_value == EnemyKind.BOSS:
+        return SPRITE_FRAME_COUNT - 1
+    var seed_value := int(position.x) * 73856093 ^ int(position.y) * 19349663
+    return absi(seed_value) % NORMAL_SPRITE_FRAME_COUNT
 
 
 func _spawn_health_pickup(position: Vector2) -> void:
@@ -1420,6 +1439,7 @@ func _remove_enemy(index: int) -> void:
         enemy_radii[index] = enemy_radii[last]
         enemy_xp[index] = enemy_xp[last]
         enemy_kinds[index] = enemy_kinds[last]
+        enemy_sprite_frames[index] = enemy_sprite_frames[last]
         enemy_last_hit_attack[index] = enemy_last_hit_attack[last]
         enemy_reserved_damage[index] = enemy_reserved_damage[last]
         enemy_anchors[index] = enemy_anchors[last]
@@ -1434,6 +1454,7 @@ func _remove_enemy(index: int) -> void:
     enemy_radii.pop_back()
     enemy_xp.pop_back()
     enemy_kinds.pop_back()
+    enemy_sprite_frames.pop_back()
     enemy_last_hit_attack.pop_back()
     enemy_reserved_damage.pop_back()
     enemy_anchors.pop_back()
@@ -1556,10 +1577,14 @@ func _emit_stats() -> void:
 
 func _setup_batched_rendering() -> void:
     circle_texture = _make_circle_texture(32)
+    sprite_atlas_texture = load(SPRITE_ATLAS_PATH) as Texture2D
+    enemy_sprite_material = _make_atlas_material()
+    material = enemy_sprite_material
 
     normal_enemy_multimesh = MultiMesh.new()
     normal_enemy_multimesh.transform_format = MultiMesh.TRANSFORM_2D
     normal_enemy_multimesh.use_colors = true
+    normal_enemy_multimesh.use_custom_data = true
     normal_enemy_multimesh.instance_count = GameConfig.ENEMY_CAP
     normal_enemy_multimesh.visible_instance_count = 0
     var enemy_mesh := QuadMesh.new()
@@ -1575,6 +1600,30 @@ func _setup_batched_rendering() -> void:
     var maximum_projectile_radius := maxf(GameConfig.NEEDLE_RADIUS, GameConfig.SNIPER_RADIUS)
     projectile_mesh.size = Vector2.ONE * (maximum_projectile_radius * 2.0 + 4.0)
     projectile_multimesh.mesh = projectile_mesh
+
+
+func _make_atlas_material() -> ShaderMaterial:
+    var shader := Shader.new()
+    shader.code = """shader_type canvas_item;
+
+void vertex() {
+	if (INSTANCE_CUSTOM.z > 0.0) {
+		UV = UV * INSTANCE_CUSTOM.zw + INSTANCE_CUSTOM.xy;
+	}
+}
+"""
+    var material := ShaderMaterial.new()
+    material.shader = shader
+    return material
+
+
+func _sprite_frame_custom_data(frame_index: int) -> Color:
+    var clamped := clampi(frame_index, 0, SPRITE_FRAME_COUNT - 1)
+    var column := clamped % SPRITE_ATLAS_COLUMNS
+    var row := clamped / SPRITE_ATLAS_COLUMNS
+    var u_scale := 1.0 / float(SPRITE_ATLAS_COLUMNS)
+    var v_scale := 1.0 / float(SPRITE_ATLAS_ROWS)
+    return Color(float(column) * u_scale, float(row) * v_scale, u_scale, v_scale)
 
 
 func _make_circle_texture(size: int) -> Texture2D:
@@ -1609,7 +1658,11 @@ func _update_render_batches() -> void:
             normal_count,
             Transform2D(0.0, WorldSpace.nearest_image(player_position, enemy_positions[i]))
         )
-        normal_enemy_multimesh.set_instance_color(normal_count, Color(0.92, 0.19, 0.25, 1.0))
+        normal_enemy_multimesh.set_instance_color(normal_count, Color.WHITE)
+        normal_enemy_multimesh.set_instance_custom_data(
+            normal_count,
+            _sprite_frame_custom_data(enemy_sprite_frames[i])
+        )
         normal_count += 1
     normal_enemy_multimesh.visible_instance_count = normal_count
 
@@ -1652,7 +1705,9 @@ func _draw() -> void:
             draw_line(position + Vector2(-6.0, 0.0), position + Vector2(6.0, 0.0), Color.WHITE, 3.0)
             draw_line(position + Vector2(0.0, -6.0), position + Vector2(0.0, 6.0), Color.WHITE, 3.0)
 
-    if normal_enemy_multimesh != null and circle_texture != null:
+    if normal_enemy_multimesh != null and sprite_atlas_texture != null:
+        draw_multimesh(normal_enemy_multimesh, sprite_atlas_texture)
+    elif normal_enemy_multimesh != null and circle_texture != null:
         draw_multimesh(normal_enemy_multimesh, circle_texture)
 
     for i in range(enemy_positions.size()):
