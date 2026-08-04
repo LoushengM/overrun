@@ -33,7 +33,7 @@ func _draw() -> void:
 
     var scale_factor := 0.045
     for boss_position in world.get_boss_positions():
-        var relative := (boss_position - world.player_position) * scale_factor
+        var relative := WorldSpace.delta(world.player_position, boss_position) * scale_factor
         var marker := center + relative
         marker.x = clampf(marker.x, 9.0, size.x - 9.0)
         marker.y = clampf(marker.y, 9.0, size.y - 9.0)
@@ -47,7 +47,7 @@ func _draw() -> void:
 
     if world.get_player_health_fraction() < 0.50:
         for pickup_position in world.get_pickup_positions():
-            var relative := (pickup_position - world.player_position) * scale_factor
+            var relative := WorldSpace.delta(world.player_position, pickup_position) * scale_factor
             var marker := center + relative
             if Rect2(Vector2(5.0, 5.0), size - Vector2(10.0, 10.0)).has_point(marker):
                 draw_circle(marker, 2.5, Color(0.30, 1.0, 0.48, 0.9))

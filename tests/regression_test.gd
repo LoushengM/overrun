@@ -28,6 +28,7 @@ func _run() -> void:
     _test_weapon_slots_and_boss_rewards(scene, world, hud)
     _test_targeting_modes(scene, world, hud)
     _test_weapon_firing_rules(world)
+    _test_toroidal_world(world)
 
     audio.stop_all()
     scene.queue_free()
@@ -257,7 +258,7 @@ func _test_speed_upgrade_camera_zoom(world: SimulationWorld) -> void:
     assert(is_equal_approx(world._camera_view_scale(), 1.10), "Camera view scale must track the player speed multiplier")
 
     world._spawn_normal_enemy()
-    var spawn_distance := world.enemy_positions[0].distance_to(world.player_position)
+    var spawn_distance := WorldSpace.distance(world.enemy_positions[0], world.player_position)
     assert(spawn_distance >= 760.0 * 1.10 - 0.01, "Zoomed-out normal enemies must still spawn outside the enlarged viewport")
     assert(spawn_distance <= 1040.0 * 1.10 + 0.01, "Zoom-scaled normal spawn distance must retain its upper bound")
 
@@ -537,6 +538,70 @@ func _test_weapon_firing_rules(world: SimulationWorld) -> void:
 
     world.weapon_damage = GameConfig.NEEDLE_DAMAGE * 2.0
     assert(is_equal_approx(world._scaled_weapon_damage(GameConfig.SNIPER_DAMAGE), GameConfig.SNIPER_DAMAGE * 2.0), "Global base damage must scale every weapon")
+
+
+func _test_toroidal_world(world: SimulationWorld) -> void:
+    # The arena wraps. Every spatial query must use the shortest separation,
+    # which may cross a seam rather than travel across the middle of the map.
+    var size := GameConfig.WORLD_SIZE
+
+    assert(is_equal_approx(size / GameConfig.GRID_CELL_SIZE, float(GameConfig.GRID_CELL_COUNT)), "World size must be a whole number of grid cells")
+    assert(is_equal_approx(WorldSpace.SIZE, size), "WorldSpace must read its extent from GameConfig")
+
+    # Wrapping folds arbitrary coordinates back into [0, SIZE).
+    var wrapped := WorldSpace.wrap_position(Vector2(-10.0, size + 25.0))
+    assert(is_equal_approx(wrapped.x, size - 10.0), "Negative coordinates must wrap to the far edge")
+    assert(is_equal_approx(wrapped.y, 25.0), "Coordinates beyond the world must wrap to the near edge")
+
+    # Deltas take the short way around a seam and stay within half the world.
+    assert(is_equal_approx(WorldSpace.delta(Vector2(size - 10.0, 0.0), Vector2(10.0, 0.0)).x, 20.0), "Crossing a seam must be the short way, not the long way")
+    assert(WorldSpace.delta(Vector2(1000.0, 2000.0), Vector2(1300.0, 1700.0)).is_equal_approx(Vector2(300.0, -300.0)), "Interior deltas must match plain subtraction")
+    assert(WorldSpace.direction(Vector2(5.0, 5.0), Vector2(5.0, 5.0)) == Vector2.ZERO, "Coincident points must not produce a NaN direction")
+    assert(is_equal_approx(WorldSpace.nearest_image(Vector2(size - 10.0, 10.0), Vector2(10.0, 10.0)).x, size + 10.0), "Nearest image must project across the seam")
+
+    # Targeting finds an enemy that is only close across a seam.
+    world.reset_run()
+    _clear_combat_state(world)
+    world.elapsed_time = 0.0
+    world.surge_active = false
+    world.player_position = Vector2(10.0, 10.0)
+    world._add_enemy(Vector2(size - 10.0, 10.0), 100.0, 0.0, 0.0, 14.0, 0, SimulationWorld.EnemyKind.NORMAL, Vector2.ZERO)
+    assert(world._find_nearest_enemy(world.player_position, 100.0) == 0, "Targeting must see an enemy that is adjacent across a seam")
+    assert(world._count_nearby_normals(100.0) == 1, "Threat counting must use wrapped distance")
+
+    # Enemies chase across a seam and their stored position stays wrapped.
+    _clear_combat_state(world)
+    world.player_position = Vector2(10.0, 0.0)
+    world._add_enemy(Vector2(size - 30.0, 0.0), 100.0, 100.0, 0.0, 14.0, 0, SimulationWorld.EnemyKind.NORMAL, Vector2.ZERO)
+    world._update_enemies(0.5)
+    var chased := world.enemy_positions[0]
+    assert(chased.x >= 0.0 and chased.x < size, "Enemy positions must stay wrapped inside the world")
+    assert(is_equal_approx(chased.x, 20.0), "An enemy must cross the seam toward the player rather than turn around")
+
+    # Projectile sweeps collide with enemies on the far side of a seam.
+    _clear_combat_state(world)
+    world.player_position = Vector2(size - 40.0, 100.0)
+    world._add_enemy(Vector2(30.0, 100.0), 500.0, 0.0, 0.0, 14.0, 0, SimulationWorld.EnemyKind.NORMAL, Vector2.ZERO)
+    world._rebuild_enemy_grid()
+    world._spawn_projectile(Vector2.RIGHT, 50.0, 600.0, 1.0, 6.0, SimulationWorld.ProjectileKind.NEEDLE)
+    world.hit_targets.clear()
+    world.hit_damage.clear()
+    world._update_projectiles(0.1)
+    assert(world.hit_targets == [0], "A projectile must hit an enemy across the seam")
+
+    # Grid cells wrap, so opposite edges share a neighbourhood.
+    assert(world._grid_cell(Vector2(-1.0, -1.0)) == Vector2i(GameConfig.GRID_CELL_COUNT - 1, GameConfig.GRID_CELL_COUNT - 1), "Negative coordinates must map into the wrapped grid")
+    assert(world._grid_cell(Vector2(size, size)) == Vector2i(0, 0), "The far edge must map onto the origin cell")
+
+    # Wrapped rendering resolves nearest images, so the view can never span
+    # more than half the world.
+    world.player_move_speed = GameConfig.PLAYER_MOVE_SPEED * 10.0
+    assert(is_equal_approx(world._camera_view_scale(), GameConfig.CAMERA_VIEW_SCALE_MAX), "Camera view scale must be capped for wrapped rendering")
+    assert(GameConfig.VIEW_SIZE.x * 0.70 * GameConfig.CAMERA_VIEW_SCALE_MAX < GameConfig.WORLD_HALF_SIZE, "The capped view must stay smaller than half the world")
+    assert(GameConfig.VIEW_SIZE.y * 0.70 * GameConfig.CAMERA_VIEW_SCALE_MAX < GameConfig.WORLD_HALF_SIZE, "The capped view must stay smaller than half the world")
+
+    world.reset_run()
+    _clear_combat_state(world)
 
 
 func _clear_combat_state(world: SimulationWorld) -> void:

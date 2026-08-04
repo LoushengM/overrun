@@ -21,9 +21,22 @@ resolve_godot() {
 
 GODOT="$(resolve_godot)"
 
+# Godot asserts print to stderr without setting a non-zero exit code, so a failed
+# assertion would otherwise slip past `set -e`. Scan the output instead.
+run_script() {
+  local script_path="$1"
+  local output
+  output="$("$GODOT" --headless --path . --script "$script_path" 2>&1)"
+  printf '%s\n' "$output"
+  if grep -qE "SCRIPT ERROR|Assertion failed" <<<"$output"; then
+    echo "Failure in $script_path" >&2
+    exit 1
+  fi
+}
+
 "$GODOT" --headless --editor --path . --quit
-"$GODOT" --headless --path . --script tests/formula_test.gd
-"$GODOT" --headless --path . --script tests/regression_test.gd
+run_script tests/formula_test.gd
+run_script tests/regression_test.gd
 
 benchmark_output="$($GODOT --headless --path . -- --benchmark)"
 printf '%s\n' "$benchmark_output"

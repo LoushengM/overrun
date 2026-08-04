@@ -295,7 +295,7 @@ func enable_benchmark() -> void:
         var angle := rng.randf_range(0.0, TAU)
         var distance := rng.randf_range(380.0, 1800.0)
         _add_enemy(
-            player_position + Vector2.from_angle(angle) * distance,
+            WorldSpace.wrap_position(player_position + Vector2.from_angle(angle) * distance),
             GameConfig.NORMAL_ENEMY_HEALTH * 8.0,
             GameConfig.NORMAL_ENEMY_SPEED,
             0.0,
@@ -366,7 +366,9 @@ func _update_player(delta: float) -> void:
     if Input.is_key_pressed(KEY_S) or Input.is_key_pressed(KEY_DOWN):
         direction.y += 1.0
     player_move_direction = direction.normalized()
-    player_position += player_move_direction * player_move_speed * delta
+    player_position = WorldSpace.wrap_position(
+        player_position + player_move_direction * player_move_speed * delta
+    )
 
 
 func _update_enemies(delta: float) -> void:
@@ -374,24 +376,24 @@ func _update_enemies(delta: float) -> void:
     for i in range(enemy_positions.size()):
         var position := enemy_positions[i]
         var direction := Vector2.ZERO
-        var to_player := player_position - position
+        var to_player := WorldSpace.delta(position, player_position)
         var distance_squared_to_player := to_player.length_squared()
         var distance_to_player := sqrt(distance_squared_to_player)
 
         if enemy_kinds[i] == EnemyKind.BOSS:
             enemy_boss_hit_protection_timer[i] = maxf(0.0, enemy_boss_hit_protection_timer[i] - delta)
             var anchor := enemy_anchors[i]
-            if player_position.distance_to(anchor) > 1600.0:
-                if position.distance_to(anchor) > 24.0:
-                    direction = position.direction_to(anchor)
+            if WorldSpace.distance(player_position, anchor) > 1600.0:
+                if WorldSpace.distance(position, anchor) > 24.0:
+                    direction = WorldSpace.direction(position, anchor)
             else:
-                direction = position.direction_to(player_position)
+                direction = WorldSpace.direction(position, player_position)
 
             if enemy_boss_telegraph[i] > 0.0:
                 var previous_telegraph := enemy_boss_telegraph[i]
                 enemy_boss_telegraph[i] = maxf(0.0, previous_telegraph - delta)
                 if previous_telegraph > 0.0 and enemy_boss_telegraph[i] <= 0.0:
-                    if position.distance_to(player_position) <= 220.0:
+                    if distance_to_player <= 220.0:
                         _apply_player_damage(enemy_damage[i], true)
             elif distance_to_player <= 650.0:
                 enemy_boss_attack_timer[i] -= delta
@@ -407,11 +409,13 @@ func _update_enemies(delta: float) -> void:
         if enemy_kinds[i] == EnemyKind.NORMAL:
             movement_multiplier *= _surge_speed_multiplier(distance_to_player)
         movement_multiplier *= _field_slow_multiplier_at(position)
-        enemy_positions[i] = position + direction * enemy_speeds[i] * movement_multiplier * delta
+        enemy_positions[i] = WorldSpace.wrap_position(
+            position + direction * enemy_speeds[i] * movement_multiplier * delta
+        )
 
         if not touched_player and player_contact_cooldown <= 0.0:
             var combined_radius := GameConfig.PLAYER_RADIUS + enemy_radii[i]
-            if enemy_positions[i].distance_squared_to(player_position) <= combined_radius * combined_radius:
+            if WorldSpace.distance_squared(enemy_positions[i], player_position) <= combined_radius * combined_radius:
                 _apply_player_damage(enemy_damage[i], false)
                 touched_player = true
                 if not is_running:
@@ -439,7 +443,7 @@ func _update_needle(delta: float) -> void:
         needle_timer = 0.08
         return
 
-    var target_direction := player_position.direction_to(enemy_positions[target_index])
+    var target_direction := WorldSpace.direction(player_position, enemy_positions[target_index])
     var count := maxi(1, weapon_projectile_count)
     var projectile_count_before := projectile_positions.size()
     var spread_step := deg_to_rad(8.0)
@@ -473,7 +477,7 @@ func _update_sniper(delta: float) -> void:
     var damage_budget := _scaled_weapon_damage(GameConfig.SNIPER_DAMAGE) * float(sniper_pierce + 1)
     var projectile_count_before := projectile_positions.size()
     _spawn_projectile(
-        player_position.direction_to(enemy_positions[target_index]),
+        WorldSpace.direction(player_position, enemy_positions[target_index]),
         damage_budget,
         GameConfig.SNIPER_SPEED,
         sniper_lifetime,
@@ -515,7 +519,7 @@ func _emit_aura_pulse(play_sound := true) -> void:
         if enemy_health[enemy_index] - enemy_reserved_damage[enemy_index] <= 0.0:
             continue
         var combined_radius := aura_radius + enemy_radii[enemy_index]
-        if player_position.distance_squared_to(enemy_positions[enemy_index]) > combined_radius * combined_radius:
+        if WorldSpace.distance_squared(player_position, enemy_positions[enemy_index]) > combined_radius * combined_radius:
             continue
         _queue_fixed_damage(enemy_index, damage_instance)
     aura_visual_timer = GameConfig.AURA_VISUAL_DURATION
@@ -534,7 +538,9 @@ func _update_field_launcher(delta: float) -> void:
 func _spawn_field() -> void:
     if field_positions.size() >= GameConfig.FIELD_CAP:
         _remove_field(0)
-    var position := player_position + Vector2.from_angle(field_spawn_angle) * GameConfig.FIELD_PLACEMENT_RADIUS
+    var position := WorldSpace.wrap_position(
+        player_position + Vector2.from_angle(field_spawn_angle) * GameConfig.FIELD_PLACEMENT_RADIUS
+    )
     field_spawn_angle = fposmod(field_spawn_angle + 2.399963229728653, TAU)
     field_positions.append(position)
     field_lifetimes.append(field_duration)
@@ -560,7 +566,7 @@ func _update_fields(delta: float) -> void:
             if enemy_health[enemy_index] - enemy_reserved_damage[enemy_index] <= 0.0:
                 continue
             var combined_radius := radius + enemy_radii[enemy_index]
-            if field_positions[field_index].distance_squared_to(enemy_positions[enemy_index]) <= combined_radius * combined_radius:
+            if WorldSpace.distance_squared(field_positions[field_index], enemy_positions[enemy_index]) <= combined_radius * combined_radius:
                 _queue_fixed_damage(enemy_index, damage_instance)
 
 
@@ -581,7 +587,9 @@ func _spawn_projectile(
     var resolved_lifetime := weapon_lifetime if lifetime < 0.0 else lifetime
     var resolved_radius := weapon_radius if radius < 0.0 else radius
 
-    projectile_positions.append(player_position + direction * (GameConfig.PLAYER_RADIUS + resolved_radius + 2.0))
+    projectile_positions.append(WorldSpace.wrap_position(
+        player_position + direction * (GameConfig.PLAYER_RADIUS + resolved_radius + 2.0)
+    ))
     projectile_velocities.append(direction * resolved_speed)
     projectile_lifetimes.append(resolved_lifetime)
     projectile_remaining_damage.append(resolved_damage)
@@ -612,7 +620,9 @@ func _update_projectiles(delta: float) -> void:
     for projectile_index in range(projectile_positions.size() - 1, -1, -1):
         var start := projectile_positions[projectile_index]
         var finish := start + projectile_velocities[projectile_index] * delta
-        projectile_positions[projectile_index] = finish
+        # The sweep below needs an unwrapped start->finish segment; only the
+        # stored position folds back onto the torus.
+        projectile_positions[projectile_index] = WorldSpace.wrap_position(finish)
         projectile_lifetimes[projectile_index] -= delta
 
         if projectile_lifetimes[projectile_index] <= 0.0:
@@ -623,14 +633,26 @@ func _update_projectiles(delta: float) -> void:
         var collision_padding := radius + GameConfig.BOSS_RADIUS
         var min_point := Vector2(minf(start.x, finish.x), minf(start.y, finish.y)) - Vector2.ONE * collision_padding
         var max_point := Vector2(maxf(start.x, finish.x), maxf(start.y, finish.y)) + Vector2.ONE * collision_padding
-        var min_cell := _grid_cell(min_point)
-        var max_cell := _grid_cell(max_point)
+        # Unwrapped cell span; each visited cell is wrapped individually below.
+        var min_cell := Vector2i(
+            floori(min_point.x / GameConfig.GRID_CELL_SIZE),
+            floori(min_point.y / GameConfig.GRID_CELL_SIZE)
+        )
+        var max_cell := Vector2i(
+            floori(max_point.x / GameConfig.GRID_CELL_SIZE),
+            floori(max_point.y / GameConfig.GRID_CELL_SIZE)
+        )
+        max_cell.x = mini(max_cell.x, min_cell.x + GameConfig.GRID_CELL_COUNT - 1)
+        max_cell.y = mini(max_cell.y, min_cell.y + GameConfig.GRID_CELL_COUNT - 1)
         projectile_candidate_targets.clear()
         projectile_candidate_fractions.clear()
 
         for cell_x in range(min_cell.x, max_cell.x + 1):
             for cell_y in range(min_cell.y, max_cell.y + 1):
-                var cell := Vector2i(cell_x, cell_y)
+                var cell := Vector2i(
+                    posmod(cell_x, GameConfig.GRID_CELL_COUNT),
+                    posmod(cell_y, GameConfig.GRID_CELL_COUNT)
+                )
                 var bucket_value: Variant = enemy_grid.get(cell, null)
                 if bucket_value == null:
                     continue
@@ -645,7 +667,7 @@ func _update_projectiles(delta: float) -> void:
                     var hit_fraction := _segment_circle_hit_fraction(
                         start,
                         finish,
-                        enemy_positions[enemy_index],
+                        WorldSpace.nearest_image(start, enemy_positions[enemy_index]),
                         collision_radius
                     )
                     if hit_fraction >= 0.0:
@@ -714,7 +736,7 @@ func _field_slow_multiplier_at(position: Vector2) -> float:
     for field_index in range(field_positions.size()):
         if field_lifetimes[field_index] <= 0.0:
             continue
-        if position.distance_squared_to(field_positions[field_index]) <= field_radii[field_index] * field_radii[field_index]:
+        if WorldSpace.distance_squared(position, field_positions[field_index]) <= field_radii[field_index] * field_radii[field_index]:
             return GameConfig.FIELD_SLOW_MULTIPLIER
     return 1.0
 
@@ -759,7 +781,7 @@ func _process_deaths() -> void:
 func _update_pickups() -> void:
     var collect_radius_squared := player_pickup_radius * player_pickup_radius
     for i in range(pickup_positions.size() - 1, -1, -1):
-        if pickup_positions[i].distance_squared_to(player_position) <= collect_radius_squared:
+        if WorldSpace.distance_squared(pickup_positions[i], player_position) <= collect_radius_squared:
             player_health = minf(player_max_health, player_health + player_max_health * GameConfig.HEALTH_PICKUP_HEAL)
             _remove_pickup(i)
             _request_sound("health_pickup")
@@ -845,7 +867,7 @@ func _spawn_normal_enemy() -> void:
     var minutes := _paced_minutes()
     var damage_scale := 1.0 + 0.10 * minutes + 0.020 * minutes * minutes
     _add_enemy(
-        player_position + Vector2.from_angle(angle) * distance,
+        WorldSpace.wrap_position(player_position + Vector2.from_angle(angle) * distance),
         _current_normal_enemy_health(),
         GameConfig.NORMAL_ENEMY_SPEED,
         GameConfig.NORMAL_ENEMY_DAMAGE * damage_scale,
@@ -890,7 +912,7 @@ func _spawn_boss() -> void:
     var angle := rng.randf_range(0.0, TAU)
     var view_scale := _camera_view_scale()
     var distance := rng.randf_range(1050.0 * view_scale, 1450.0 * view_scale)
-    var position := player_position + Vector2.from_angle(angle) * distance
+    var position := WorldSpace.wrap_position(player_position + Vector2.from_angle(angle) * distance)
     var minutes := _paced_minutes()
     var damage_scale := 1.0 + 0.14 * minutes + 0.025 * minutes * minutes
     _add_enemy(
@@ -1247,7 +1269,14 @@ func _golomb(index: int) -> int:
 
 
 func _camera_view_scale() -> float:
-    return maxf(1.0, player_move_speed / GameConfig.PLAYER_MOVE_SPEED)
+    # Capped so the visible half-extent stays below half the world; wrapped
+    # rendering picks each entity's nearest image, which is only unambiguous
+    # while the view is smaller than the torus.
+    return clampf(
+        player_move_speed / GameConfig.PLAYER_MOVE_SPEED,
+        1.0,
+        GameConfig.CAMERA_VIEW_SCALE_MAX
+    )
 
 
 func _update_camera_zoom() -> void:
@@ -1280,7 +1309,7 @@ func _find_nearest_enemy(origin: Vector2, max_range: float) -> int:
     for i in range(enemy_positions.size()):
         if enemy_health[i] <= 0.0:
             continue
-        var distance_squared := origin.distance_squared_to(enemy_positions[i])
+        var distance_squared := WorldSpace.distance_squared(origin, enemy_positions[i])
         if distance_squared < best_distance_squared:
             best_distance_squared = distance_squared
             best_index = i
@@ -1296,7 +1325,7 @@ func _find_strongest_enemy(origin: Vector2, max_range: float) -> int:
     for i in range(enemy_positions.size()):
         if enemy_health[i] <= 0.0:
             continue
-        var distance_squared := origin.distance_squared_to(enemy_positions[i])
+        var distance_squared := WorldSpace.distance_squared(origin, enemy_positions[i])
         if distance_squared >= max_range_squared:
             continue
 
@@ -1316,7 +1345,7 @@ func _count_nearby_normals(radius: float) -> int:
     var radius_squared := radius * radius
     var count := 0
     for i in range(enemy_positions.size()):
-        if enemy_kinds[i] == EnemyKind.NORMAL and enemy_positions[i].distance_squared_to(player_position) <= radius_squared:
+        if enemy_kinds[i] == EnemyKind.NORMAL and WorldSpace.distance_squared(enemy_positions[i], player_position) <= radius_squared:
             count += 1
     return count
 
@@ -1345,8 +1374,8 @@ func _release_grid_buckets() -> void:
 
 func _grid_cell(position: Vector2) -> Vector2i:
     return Vector2i(
-        floori(position.x / GameConfig.GRID_CELL_SIZE),
-        floori(position.y / GameConfig.GRID_CELL_SIZE)
+        posmod(floori(position.x / GameConfig.GRID_CELL_SIZE), GameConfig.GRID_CELL_COUNT),
+        posmod(floori(position.y / GameConfig.GRID_CELL_SIZE), GameConfig.GRID_CELL_COUNT)
     )
 
 
@@ -1576,7 +1605,10 @@ func _update_render_batches() -> void:
     for i in range(enemy_positions.size()):
         if enemy_kinds[i] != EnemyKind.NORMAL or not _is_near_view(enemy_positions[i], enemy_half):
             continue
-        normal_enemy_multimesh.set_instance_transform_2d(normal_count, Transform2D(0.0, enemy_positions[i]))
+        normal_enemy_multimesh.set_instance_transform_2d(
+            normal_count,
+            Transform2D(0.0, WorldSpace.nearest_image(player_position, enemy_positions[i]))
+        )
         normal_enemy_multimesh.set_instance_color(normal_count, Color(0.92, 0.19, 0.25, 1.0))
         normal_count += 1
     normal_enemy_multimesh.visible_instance_count = normal_count
@@ -1584,7 +1616,7 @@ func _update_render_batches() -> void:
     var projectile_half := visible_half + Vector2(80.0, 80.0)
     var projectile_count := 0
     for projectile_index in range(projectile_positions.size()):
-        var position := projectile_positions[projectile_index]
+        var position := WorldSpace.nearest_image(player_position, projectile_positions[projectile_index])
         if not _is_near_view(position, projectile_half):
             continue
         var visual_scale := _projectile_visual_scale(projectile_radii[projectile_index])
@@ -1606,14 +1638,15 @@ func _draw() -> void:
 
     var visible_half := GameConfig.VIEW_SIZE * 0.62 * _camera_view_scale()
     for field_index in range(field_positions.size()):
-        var field_position := field_positions[field_index]
+        var field_position := WorldSpace.nearest_image(player_position, field_positions[field_index])
         if not _is_near_view(field_position, visible_half + Vector2(180.0, 180.0)):
             continue
         var life_fraction := clampf(field_lifetimes[field_index] / maxf(0.001, field_duration), 0.0, 1.0)
         draw_circle(field_position, field_radii[field_index], Color(0.22, 0.72, 0.36, 0.10 + 0.10 * life_fraction))
         draw_arc(field_position, field_radii[field_index], 0.0, TAU, 48, Color(0.34, 0.94, 0.50, 0.48), 3.0)
 
-    for position in pickup_positions:
+    for raw_pickup_position in pickup_positions:
+        var position := WorldSpace.nearest_image(player_position, raw_pickup_position)
         if _is_near_view(position, visible_half):
             draw_circle(position, 11.0, Color(0.25, 0.95, 0.45, 0.95))
             draw_line(position + Vector2(-6.0, 0.0), position + Vector2(6.0, 0.0), Color.WHITE, 3.0)
@@ -1623,7 +1656,7 @@ func _draw() -> void:
         draw_multimesh(normal_enemy_multimesh, circle_texture)
 
     for i in range(enemy_positions.size()):
-        var position := enemy_positions[i]
+        var position := WorldSpace.nearest_image(player_position, enemy_positions[i])
         if not _is_near_view(position, visible_half + Vector2(100.0, 100.0)):
             continue
         if enemy_kinds[i] == EnemyKind.BOSS:
@@ -1709,5 +1742,5 @@ func _draw_background_grid() -> void:
 
 
 func _is_near_view(position: Vector2, half_extent: Vector2) -> bool:
-    var delta := position - player_position
+    var delta := WorldSpace.delta(player_position, position)
     return absf(delta.x) <= half_extent.x and absf(delta.y) <= half_extent.y

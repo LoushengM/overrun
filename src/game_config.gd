@@ -91,6 +91,18 @@ const PROJECTILE_CAP := 16384
 const PICKUP_CAP := 40
 const BOSS_CAP := 10
 const GRID_CELL_SIZE := 96.0
+
+# The arena is a torus: leaving one edge re-enters the opposite edge. WORLD_SIZE
+# must stay a whole multiple of GRID_CELL_SIZE so wrapped cell indexing is exact.
+# 6144 / 96 = 64 cells per axis.
+const WORLD_SIZE := 6144.0
+const WORLD_HALF_SIZE := WORLD_SIZE * 0.5
+const GRID_CELL_COUNT := 64
+
+# Wrapped rendering resolves each entity to its nearest image around the player,
+# which is only unambiguous while the visible half-extent stays under half the
+# world. VIEW_SIZE * 0.70 * 2.4 = 2150 < 3072, so this cap holds with margin.
+const CAMERA_VIEW_SCALE_MAX := 2.4
 const MAX_SPAWNS_PER_TICK := 24
 const MAX_SPAWN_DEBT_SECONDS := 0.50
 
