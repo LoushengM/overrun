@@ -2852,11 +2852,14 @@ func _make_projectile_atlas_texture(frame_size: int) -> Texture2D:
     _image_line_local(image, flak_origin, Vector2i(15, 28), Vector2i(36, 24), 4, COLOR_ORANGE)
     _image_line_local(image, flak_origin, Vector2i(22, 24), Vector2i(38, 24), 2, Color.WHITE)
 
-    # Enemy bolt: a red-orange plasma dart distinct from the player's cyan fire.
+    # Enemy bolt: an unmistakably red plasma dart. The soft outer stroke and
+    # pale-red hot point keep it readable without borrowing the player's cyan
+    # or the orange used by Flak and Detonator effects.
     var enemy_bolt_origin := Vector2i(frame_size * 3, 0)
-    _image_line_local(image, enemy_bolt_origin, Vector2i(7, 24), Vector2i(39, 24), 9, Color(COLOR_RED, 0.18))
-    _image_line_local(image, enemy_bolt_origin, Vector2i(10, 24), Vector2i(39, 24), 4, COLOR_ORANGE)
-    _image_circle_local(image, enemy_bolt_origin, Vector2i(39, 24), 4, Color.WHITE)
+    _image_line_local(image, enemy_bolt_origin, Vector2i(6, 24), Vector2i(39, 24), 11, Color(1.0, 0.02, 0.01, 0.24))
+    _image_line_local(image, enemy_bolt_origin, Vector2i(9, 24), Vector2i(39, 24), 5, COLOR_RED)
+    _image_circle_local(image, enemy_bolt_origin, Vector2i(39, 24), 5, Color("ff8678"))
+    _image_circle_local(image, enemy_bolt_origin, Vector2i(40, 24), 2, Color("ffd1cc"))
 
     # Detonator shell: compact gunmetal missile with an orange payload band.
     var shell_origin := Vector2i(frame_size * 4, 0)

@@ -38,6 +38,8 @@ func _init() -> void:
         var origin := Vector2i((frame_index % COLUMNS) * FRAME_SIZE, row * FRAME_SIZE)
         _draw_frame(image, origin, frame_index)
         _outline_frame(image, origin)
+        if frame_index == 3:
+            _draw_ranged_glow(image, origin)
 
     var path := ProjectSettings.globalize_path("res://assets/robots.png")
     var error := image.save_png(path)
@@ -126,10 +128,20 @@ func _draw_ranged(image: Image, origin: Vector2i) -> void:
     _rect(image, origin, Rect2i(17, 21, 10, 4), OPTIC)
     _rect(image, origin, Rect2i(29, 21, 15, 6), SHELL_DARK)
     _rect(image, origin, Rect2i(33, 22, 12, 4), SHELL)
-    _rect(image, origin, Rect2i(43, 22, 3, 4), CYAN)
+    _rect(image, origin, Rect2i(43, 22, 3, 4), OPTIC)
     _line(image, origin, Vector2i(22, 13), Vector2i(22, 6), 2, SHELL_DARK)
-    _circle(image, origin, Vector2i(22, 5), 2, CYAN)
+    _circle(image, origin, Vector2i(22, 5), 2, OPTIC)
     _rect(image, origin, Rect2i(29, 29, 6, 3), HAZARD)
+
+
+# The glow is added after outlining so the soft halo remains translucent and
+# does not acquire a dark pixel border. Only empty atlas pixels are tinted,
+# preserving the robot silhouette while making ranged threats readable at a
+# glance in dense crowds.
+func _draw_ranged_glow(image: Image, origin: Vector2i) -> void:
+    _glow_circle(image, origin, Vector2i(23, 23), 20, Color(1.0, 0.05, 0.02, 0.34))
+    _glow_circle(image, origin, Vector2i(38, 24), 12, Color(1.0, 0.03, 0.01, 0.40))
+    _glow_circle(image, origin, Vector2i(22, 5), 7, Color(1.0, 0.08, 0.03, 0.30))
 
 
 func _draw_splitter(image: Image, origin: Vector2i) -> void:
@@ -234,6 +246,25 @@ func _line(image: Image, origin: Vector2i, start: Vector2i, finish: Vector2i, wi
     for step in range(steps + 1):
         var point := Vector2(start).lerp(Vector2(finish), float(step) / float(steps))
         _circle(image, origin, Vector2i(roundi(point.x), roundi(point.y)), maxi(1, width / 2), color)
+
+
+func _glow_circle(image: Image, origin: Vector2i, center: Vector2i, radius: int, color: Color) -> void:
+    var radius_float := float(radius)
+    var radius_squared := radius * radius
+    for y in range(maxi(0, center.y - radius), mini(FRAME_SIZE, center.y + radius + 1)):
+        for x in range(maxi(0, center.x - radius), mini(FRAME_SIZE, center.x + radius + 1)):
+            var pixel_position := origin + Vector2i(x, y)
+            if image.get_pixelv(pixel_position).a > 0.0:
+                continue
+            var dx := x - center.x
+            var dy := y - center.y
+            var distance_squared := dx * dx + dy * dy
+            if distance_squared > radius_squared:
+                continue
+            var falloff := 1.0 - sqrt(float(distance_squared)) / radius_float
+            var alpha := color.a * falloff * falloff
+            if alpha > 0.002:
+                image.set_pixelv(pixel_position, Color(color.r, color.g, color.b, alpha))
 
 
 # Wrap every opaque cluster in a dark one-pixel border so silhouettes remain

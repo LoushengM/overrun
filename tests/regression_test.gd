@@ -141,8 +141,24 @@ func _test_audio_wiring(audio: SoundManager, world: SimulationWorld, hud: GameHu
 func _test_visual_overhaul_assets(world: SimulationWorld, hud: GameHud) -> void:
     assert(world.sprite_atlas_texture != null, "The robot enemy atlas must load")
     assert(world.sprite_atlas_texture.get_size() == Vector2(192, 96), "The robot atlas must keep eight 48px frames")
+    var robot_atlas_image := world.sprite_atlas_texture.get_image()
+    var ranged_glow_pixels := 0
+    for y in range(48):
+        for x in range(48 * 3, 48 * 4):
+            var pixel := robot_atlas_image.get_pixel(x, y)
+            if pixel.a > 0.002 and pixel.a < 0.50 and pixel.r > pixel.g * 3.0 and pixel.r > pixel.b * 3.0:
+                ranged_glow_pixels += 1
+    assert(ranged_glow_pixels >= 120, "Ranged robots must retain a broad translucent red warning glow")
+    var ranged_muzzle := robot_atlas_image.get_pixel(48 * 3 + 45, 24)
+    assert(ranged_muzzle.r > 0.90 and ranged_muzzle.g < 0.45, "The ranged robot muzzle must emit red rather than cyan")
+
     assert(world.floor_texture != null and world.floor_texture.get_size() == Vector2(768, 768), "The industrial floor must be baked into one low-draw-call tile")
     assert(world.projectile_texture != null and world.projectile_texture.get_size() == Vector2(288, 48), "The compact-effect atlas must contain six 48px frames")
+    var projectile_atlas_image := world.projectile_texture.get_image()
+    var enemy_bolt_core := projectile_atlas_image.get_pixel(48 * 3 + 24, 24)
+    assert(enemy_bolt_core.r > 0.95 and enemy_bolt_core.g < 0.40 and enemy_bolt_core.b < 0.35, "Enemy projectile cores must be visibly red")
+    var enemy_bolt_tip := projectile_atlas_image.get_pixel(48 * 3 + 40, 24)
+    assert(enemy_bolt_tip.r > enemy_bolt_tip.g and enemy_bolt_tip.r > enemy_bolt_tip.b, "Enemy projectile hot points must remain red-tinted")
     assert(world.world_effect_texture != null and world.world_effect_texture.get_size() == Vector2(576, 192), "The large-effect atlas must contain three 192px frames")
     assert(world.boss_texture != null and world.boss_texture.get_size() == Vector2(160, 160), "The spider boss must use one baked texture")
     assert(world.player_texture != null and world.player_texture.get_size() == Vector2(96, 96), "The operator must use one baked texture")
