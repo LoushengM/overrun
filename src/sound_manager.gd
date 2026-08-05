@@ -32,6 +32,50 @@ const CUE_CONFIG := {
         "pitch_min": 0.92,
         "pitch_max": 1.06,
     },
+    # The expanded weapon roster gets its own cues rather than borrowing from
+    # the original four. These fire far more often than anything else in the
+    # game, so every source was pitched down and band-checked: all five sit at
+    # hi_2k <= -37 dB, well clear of the bright band that gets fatiguing on
+    # repeat. Cooldowns are deliberately at or above each weapon's floor cadence
+    # so a dense crowd cannot machine-gun the pool.
+    "chain_arc": {
+        "path": "res://assets/audio/chain_arc.wav",
+        "volume_db": -17.0,
+        "cooldown": 0.16,
+        "pitch_min": 0.94,
+        "pitch_max": 1.04,
+    },
+    "flak_fire": {
+        "path": "res://assets/audio/flak_fire.wav",
+        "volume_db": -14.0,
+        "cooldown": 0.12,
+        "pitch_min": 0.92,
+        "pitch_max": 1.06,
+    },
+    # Orbital contact is the highest-repetition cue in the game: eight
+    # satellites can each land a hit every interval. Quietest of the set with
+    # the widest pitch jitter so repeats do not phase into a single tone.
+    "orbital_contact": {
+        "path": "res://assets/audio/orbital_contact.wav",
+        "volume_db": -23.0,
+        "cooldown": 0.09,
+        "pitch_min": 0.88,
+        "pitch_max": 1.10,
+    },
+    "detonator_launch": {
+        "path": "res://assets/audio/detonator_launch.wav",
+        "volume_db": -13.0,
+        "cooldown": 0.22,
+        "pitch_min": 0.95,
+        "pitch_max": 1.05,
+    },
+    "detonator_blast": {
+        "path": "res://assets/audio/detonator_blast.wav",
+        "volume_db": -11.0,
+        "cooldown": 0.14,
+        "pitch_min": 0.93,
+        "pitch_max": 1.05,
+    },
     "enemy_hit": {
         "path": "res://assets/audio/enemy_hit.wav",
         "volume_db": -21.0,

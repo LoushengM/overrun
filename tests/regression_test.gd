@@ -61,6 +61,11 @@ func _test_audio_wiring(audio: SoundManager, world: SimulationWorld) -> void:
         "weapon_unlock",
         "target_toggle",
         "run_over",
+        "chain_arc",
+        "flak_fire",
+        "orbital_contact",
+        "detonator_launch",
+        "detonator_blast",
     ]
     for cue in expected_cues:
         assert(audio.has_cue(cue), "Missing stock sound cue: %s" % cue)

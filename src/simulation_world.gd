@@ -784,10 +784,7 @@ func _update_chain(delta: float) -> void:
         current_index = _find_chain_jump_target(enemy_positions[current_index])
 
     chain_visual_timer = GameConfig.CHAIN_VISUAL_DURATION
-    # The new weapons reuse stock cues rather than emitting names with no wav
-    # behind them: SoundManager drops unknown cues silently, which would hide a
-    # missing asset instead of surfacing it.
-    _request_sound("aura_pulse")
+    _request_sound("chain_arc")
     chain_timer += maxf(0.20, chain_cooldown)
 
 
@@ -839,7 +836,7 @@ func _update_flak(delta: float) -> void:
             ProjectileKind.FLAK
         )
     if projectile_positions.size() > projectile_count_before:
-        _request_sound("needle_fire")
+        _request_sound("flak_fire")
     flak_timer += maxf(0.15, flak_cooldown)
 
 
@@ -878,6 +875,9 @@ func _update_orbitals(delta: float) -> void:
                 struck = true
         if struck:
             orbital_hit_timers[i] = orbital_hit_interval
+            # Gated by the contact interval, and the cue's own cooldown collapses
+            # simultaneous satellite hits into one voice.
+            _request_sound("orbital_contact")
 
 
 func _update_detonator(delta: float) -> void:
@@ -909,7 +909,7 @@ func _spawn_detonator_shell(target_position: Vector2) -> void:
     detonator_shell_velocities.append(direction * GameConfig.DETONATOR_SPEED)
     detonator_shell_remaining.append(maxf(0.0, travel - muzzle_offset))
     detonator_shell_lifetimes.append(GameConfig.DETONATOR_LIFETIME)
-    _request_sound("longshot_fire")
+    _request_sound("detonator_launch")
 
 
 func _update_detonator_shells(delta: float) -> void:
@@ -937,7 +937,7 @@ func _detonate(position: Vector2) -> void:
         detonator_blast_positions.append(position)
         detonator_blast_radii.append(detonator_blast_radius)
         detonator_blast_timers.append(GameConfig.DETONATOR_VISUAL_DURATION)
-    _request_sound("mire_deploy")
+    _request_sound("detonator_blast")
 
 
 func _update_detonator_blasts(delta: float) -> void:
