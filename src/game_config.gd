@@ -210,18 +210,23 @@ const FLAK_RADIUS := 5.0
 # because the shared projectile sweep advances entries by velocity and treats
 # them as line segments; an angular orbit would read as a teleport across the
 # arena and corrupt the segment-vs-circle test.
-const ORBITAL_DAMAGE := 9.0
+# Orbital costs the player nothing to use -- no aiming, no positioning, no
+# window to miss -- so its base output sits just under Needle rather than at
+# the top of the table. At 9.0/0.35 it was the strongest weapon in the game.
+const ORBITAL_DAMAGE := 5.0
 const ORBITAL_COUNT := 2
 const ORBITAL_RADIUS := 150.0
 const ORBITAL_ANGULAR_SPEED := 2.60
 const ORBITAL_HIT_RADIUS := 16.0
-const ORBITAL_HIT_INTERVAL := 0.35
+const ORBITAL_HIT_INTERVAL := 0.40
 const ORBITAL_CAP := 24
 
 # Detonator: slow lobbed shell that deals area damage where it lands. Reuses the
 # radial damage sweep from fields, but resolves once instead of persisting.
-const DETONATOR_DAMAGE := 34.0
-const DETONATOR_COOLDOWN := 2.60
+# The shell travels slowly and can miss entirely, which the 34.0/2.60 opening
+# never paid for -- it was the weakest unlock in the pool by a wide margin.
+const DETONATOR_DAMAGE := 46.0
+const DETONATOR_COOLDOWN := 2.20
 const DETONATOR_RANGE := 900.0
 const DETONATOR_SPEED := 430.0
 const DETONATOR_LIFETIME := 2.20
