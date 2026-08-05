@@ -414,12 +414,19 @@ func select_character(character_id: String) -> void:
         selected_character = character_id
 
 
-func enable_benchmark() -> void:
+# The default loadout is the original four weapons, which keeps the headline
+# benchmark number comparable across commits. Passing the expanded roster
+# instead exercises the four newer weapons, whose cues fire far more often --
+# Orbital in particular can contact once per satellite per interval.
+func enable_benchmark(expanded_loadout: bool = false) -> void:
     benchmark_mode = true
     player_health = 1000000.0
     player_max_health = 1000000.0
     weapon_damage = 25.0
-    owned_weapons.assign(["needle", "sniper", "aura", "field"])
+    if expanded_loadout:
+        owned_weapons.assign(["chain", "flak", "orbital", "detonator"])
+    else:
+        owned_weapons.assign(["needle", "sniper", "aura", "field"])
     weapon_cooldown = 0.07
     weapon_projectile_count = 10
     weapon_pierce = 5
@@ -429,6 +436,15 @@ func enable_benchmark() -> void:
     aura_echoes = 3
     field_cooldown = 0.75
     field_duration = 5.5
+    # Push the new weapons to their upgraded ceilings so the run measures the
+    # worst case: maximum fire rate, maximum satellite count, maximum shells.
+    chain_cooldown = 0.18
+    chain_jumps = 6
+    flak_cooldown = 0.20
+    flak_pellets = 12
+    orbital_count = 8
+    orbital_hit_interval = 0.25
+    detonator_cooldown = 0.45
     enemy_positions.clear()
     enemy_health.clear()
     enemy_max_health.clear()

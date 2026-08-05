@@ -42,4 +42,12 @@ benchmark_output="$($GODOT --headless --path . -- --benchmark)"
 printf '%s\n' "$benchmark_output"
 grep -q "BENCHMARK_RESULT" <<<"$benchmark_output"
 
+# The stock benchmark never fires the four newer weapons, so their cost is
+# unmeasured. This variant swaps the loadout and leaves the headline number
+# above comparable across commits.
+expanded_output="$($GODOT --headless --path . -- --benchmark-expanded)"
+printf '%s\n' "$expanded_output"
+grep -q "BENCHMARK_RESULT" <<<"$expanded_output"
+grep -q '"owned_weapons":\["chain","flak","orbital","detonator"\]' <<<"$expanded_output"
+
 echo "All Overrun checks passed."

@@ -5,6 +5,7 @@ extends Node
 @onready var audio: SoundManager = $SoundManager
 
 var benchmark_mode := false
+var benchmark_expanded := false
 
 
 func _ready() -> void:
@@ -23,12 +24,15 @@ func _ready() -> void:
 
     var arguments := OS.get_cmdline_args()
     var user_arguments := OS.get_cmdline_user_args()
-    benchmark_mode = arguments.has("--benchmark") or user_arguments.has("--benchmark")
+    # --benchmark-expanded implies --benchmark; it only swaps the loadout so the
+    # newer four weapons get measured instead of the stock four.
+    benchmark_expanded = arguments.has("--benchmark-expanded") or user_arguments.has("--benchmark-expanded")
+    benchmark_mode = benchmark_expanded or arguments.has("--benchmark") or user_arguments.has("--benchmark")
 
     world.reset_run()
     hud.reset_display()
     if benchmark_mode:
-        world.enable_benchmark()
+        world.enable_benchmark(benchmark_expanded)
     else:
         _open_character_select()
 
@@ -115,6 +119,6 @@ func _restart_run() -> void:
     hud.reset_display()
     world.reset_run()
     if benchmark_mode:
-        world.enable_benchmark()
+        world.enable_benchmark(benchmark_expanded)
     else:
         _open_character_select()
