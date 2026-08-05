@@ -18,6 +18,7 @@ func _run() -> void:
     _test_audio_wiring(audio, world, hud)
     _test_visual_overhaul_assets(world, hud)
     _test_incremental_spatial_grid(world)
+    _test_motion_rendering(world)
     _test_pause_and_keyboard_selection(scene, world, hud, audio)
     _test_restart_input_and_character_reuse(scene, world, hud, audio)
     _test_projectile_damage_conservation(world)
@@ -251,6 +252,22 @@ func _assert_enemy_grid_consistent(world: SimulationWorld) -> void:
             seen[enemy_index] += 1
     for enemy_index in range(enemy_count):
         assert(seen[enemy_index] == 1, "Every enemy must appear in exactly one grid bucket")
+
+
+func _test_motion_rendering(world: SimulationWorld) -> void:
+    assert(not world.camera.position_smoothing_enabled, "Camera smoothing must stay disabled so the robot and retained world snapshot cannot drift apart")
+
+    var tile_size := float(SimulationWorld.FLOOR_TEXTURE_SIZE)
+    var first_bounds := world._background_bounds_for(Vector2(100.0, 100.0))
+    var nearby_bounds := world._background_bounds_for(Vector2(140.0, 100.0))
+    assert(first_bounds.position == nearby_bounds.position, "Small player movement must not drag the floor tile origin")
+    assert(is_zero_approx(fposmod(first_bounds.position.x, tile_size)), "Floor bounds must be aligned to the world-space texture grid on X")
+    assert(is_zero_approx(fposmod(first_bounds.position.y, tile_size)), "Floor bounds must be aligned to the world-space texture grid on Y")
+
+    var crossed_bounds := world._background_bounds_for(Vector2(tile_size * 2.0 + 100.0, 100.0))
+    assert(is_zero_approx(fposmod(crossed_bounds.position.x, tile_size)), "Floor bounds must remain tile-aligned after crossing a texture cell")
+    var required_width := GameConfig.VIEW_SIZE.x * world._camera_view_scale() + 64.0
+    assert(crossed_bounds.size.x >= required_width, "The floor must retain a guard band around the camera")
 
 
 func _test_pause_and_keyboard_selection(scene: Node, world: SimulationWorld, hud: GameHud, audio: SoundManager) -> void:

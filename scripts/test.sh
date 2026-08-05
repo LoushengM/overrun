@@ -94,6 +94,20 @@ else
 fi
 
 if command -v xvfb-run >/dev/null 2>&1; then
+  motion_output="$(xvfb-run -a -s '-screen 0 1280x720x24' \
+    "$GODOT" --path . --audio-driver Dummy --disable-vsync \
+    --script tests/motion_render_test.gd 2>&1)"
+  printf '%s\n' "$motion_output"
+  if grep -qE "SCRIPT ERROR|Assertion failed" <<<"$motion_output"; then
+    echo "Failure in tests/motion_render_test.gd" >&2
+    exit 1
+  fi
+  grep -q "MOTION_RENDER_TEST_OK" <<<"$motion_output"
+else
+  echo "MOTION_RENDER_TEST_SKIPPED xvfb-run not available"
+fi
+
+if command -v xvfb-run >/dev/null 2>&1; then
   gameplay_stress_output="$(xvfb-run -a -s '-screen 0 1280x720x24' \
     "$GODOT" --path . --audio-driver Dummy --disable-vsync \
     --script tests/gameplay_stress_benchmark.gd 2>&1)"

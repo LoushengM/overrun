@@ -253,6 +253,7 @@ var golomb_cache: Array[int] = [0, 1]
 func _ready() -> void:
     process_mode = Node.PROCESS_MODE_PAUSABLE
     texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+    RenderingServer.set_default_clear_color(COLOR_VOID)
     rng.randomize()
     camera.enabled = true
     _setup_batched_rendering()
@@ -561,7 +562,6 @@ func _process(delta: float) -> void:
     # renderer that can only present 20-30 frames.
     render_update_accumulator = fmod(render_update_accumulator, RENDER_UPDATE_INTERVAL)
     _update_render_batches()
-    queue_redraw()
 
 
 func _physics_process(delta: float) -> void:
@@ -597,7 +597,11 @@ func _physics_process(delta: float) -> void:
     _check_boss_reward()
     _check_level_up()
 
+    # Camera, player, floor bounds, and procedural overlays must advance from
+    # the same physics snapshot. MultiMesh uploads remain capped in _process,
+    # but redraw requests are cheap and coalesce when rendering is slower.
     camera.position = player_position
+    queue_redraw()
     stats_timer += delta
     if stats_timer >= 0.10:
         stats_timer = 0.0
@@ -626,17 +630,16 @@ func _update_player(delta: float) -> void:
     )
 
 
-# Camera smoothing operates in the flat coordinate plane, so a toroidal wrap
-# looks like a WORLD_SIZE-pixel teleport unless the smoothing state is rebased.
-# Snapping both the target and the current scroll position keeps the seam
-# visually continuous while simulation coordinates remain wrapped.
+# The camera tracks the player without smoothing so the robot remains locked to
+# the screen center and cannot drift against a retained draw snapshot. A seam
+# crossing still forces the camera scroll immediately because simulation space
+# wraps by a full WORLD_SIZE in one physics tick.
 func _set_player_position(unwrapped_position: Vector2) -> void:
     var wrapped_position := WorldSpace.wrap_position(unwrapped_position)
     var crossed_seam := not wrapped_position.is_equal_approx(unwrapped_position)
     player_position = wrapped_position
     if crossed_seam:
         camera.position = player_position
-        camera.reset_smoothing()
         camera.force_update_scroll()
 
 
@@ -3441,9 +3444,29 @@ func _player_shell_color() -> Color:
             return COLOR_STEEL_LIT
 
 
+func _background_bounds_for(center: Vector2) -> Rect2:
+    var view_half := GameConfig.VIEW_SIZE * 0.5 * _camera_view_scale()
+    var tile_size := float(FLOOR_TEXTURE_SIZE)
+    var margin := Vector2.ONE * 32.0
+    var minimum := center - view_half - margin
+    var maximum := center + view_half + margin
+    var snapped_minimum := Vector2(
+        floorf(minimum.x / tile_size) * tile_size,
+        floorf(minimum.y / tile_size) * tile_size
+    )
+    var snapped_maximum := Vector2(
+        ceilf(maximum.x / tile_size) * tile_size,
+        ceilf(maximum.y / tile_size) * tile_size
+    )
+    return Rect2(snapped_minimum, snapped_maximum - snapped_minimum)
+
+
 func _draw_background_grid() -> void:
-    var half := GameConfig.VIEW_SIZE * 0.70 * _camera_view_scale()
-    var bounds := Rect2(player_position - half, half * 2.0)
+    # draw_texture_rect tiles relative to the destination rectangle. Keeping its
+    # origin aligned to whole texture cells prevents the floor pattern from
+    # following the player. Tile snapping already supplies a broad guard band;
+    # only a small explicit margin is needed now that camera smoothing is off.
+    var bounds := _background_bounds_for(player_position)
     draw_rect(bounds, COLOR_VOID, true)
     if floor_texture != null:
         draw_texture_rect(floor_texture, bounds, true, Color.WHITE)
