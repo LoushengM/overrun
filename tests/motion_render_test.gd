@@ -32,6 +32,8 @@ func _run() -> void:
     _verify_ranged_threat(ranged_capture)
     var radar_capture: Image = await _capture_pickup_radar(world, hud)
     _verify_pickup_radar(radar_capture)
+    var hotbar_capture: Image = await _capture_weapon_hotbar(world, hud)
+    _verify_weapon_hotbar(hotbar_capture)
 
     scene.queue_free()
     await process_frame
@@ -48,6 +50,48 @@ func _capture(world: SimulationWorld, position: Vector2, frame_count: int) -> Im
     for frame_index in range(frame_count):
         await process_frame
     return root.get_viewport().get_texture().get_image()
+
+
+func _capture_weapon_hotbar(world: SimulationWorld, hud: GameHud) -> Image:
+    hud.reset_display()
+    hud.visible = true
+    world.owned_weapons.assign(["needle", "sniper", "aura", "detonator"])
+    world.weapon_targeting_modes["needle"] = SimulationWorld.TargetingMode.STRONGEST
+    world.weapon_targeting_modes["sniper"] = SimulationWorld.TargetingMode.CLOSEST
+    world.weapon_targeting_modes["detonator"] = SimulationWorld.TargetingMode.STRONGEST
+    world._emit_stats()
+    for frame_index in range(3):
+        await process_frame
+    return root.get_viewport().get_texture().get_image()
+
+
+func _verify_weapon_hotbar(image: Image) -> void:
+    var slot_colors := ["orange", "cyan", "teal", "orange"]
+    var matching_pixels: Array[int] = [0, 0, 0, 0]
+    for slot_index in range(4):
+        var start_x := 480 + slot_index * 143
+        var end_x := start_x + 127
+        for y in range(48, 101):
+            for x in range(start_x, end_x):
+                var color := image.get_pixel(x, y)
+                match slot_colors[slot_index]:
+                    "orange":
+                        if color.r > 0.65 and color.g > 0.28 and color.g < color.r * 0.82 and color.b < 0.35:
+                            matching_pixels[slot_index] += 1
+                    "cyan":
+                        if color.g > 0.62 and color.b > 0.68 and color.r < 0.30:
+                            matching_pixels[slot_index] += 1
+                    "teal":
+                        if color.g > 0.65 and color.b > 0.52 and color.r < 0.40:
+                            matching_pixels[slot_index] += 1
+    print("WEAPON_HOTBAR_METRICS ", JSON.stringify({
+        "slot_1_orange": matching_pixels[0],
+        "slot_2_cyan": matching_pixels[1],
+        "slot_3_teal": matching_pixels[2],
+        "slot_4_orange": matching_pixels[3],
+    }))
+    for slot_index in range(4):
+        assert(matching_pixels[slot_index] >= 20, "Weapon hotbar slot %d must visibly render its targeting color" % (slot_index + 1))
 
 
 func _capture_pickup_radar(world: SimulationWorld, hud: GameHud) -> Image:

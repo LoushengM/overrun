@@ -867,6 +867,12 @@ func _test_weapon_slots_and_boss_rewards(scene: Node, world: SimulationWorld, hu
     assert(not world._roll_weapon_upgrade_options().has("needle_projectile_count"), "Capped upgrades must disappear from boss rewards")
     world.weapon_upgrade_levels["needle_projectile_count"] = 0
 
+    assert(GameConfig.WEAPON_UPGRADE_CAPS["needle_pierce"] == 4, "Needle pierce must cap at four upgrade ranks")
+    world.weapon_upgrade_levels["needle_pierce"] = GameConfig.WEAPON_UPGRADE_CAPS["needle_pierce"]
+    assert(not world._is_upgrade_eligible("needle_pierce"), "Needle pierce must leave reward pools after rank four")
+    assert(not world._roll_weapon_upgrade_options().has("needle_pierce"), "Capped Needle pierce must disappear from boss rewards")
+    world.weapon_upgrade_levels["needle_pierce"] = 0
+
     world.player_invulnerability_timer = 0.0
     world._check_boss_reward()
     assert(paused, "A boss reward must pause the run")
@@ -893,36 +899,69 @@ func _test_weapon_slots_and_boss_rewards(scene: Node, world: SimulationWorld, hu
 func _test_targeting_modes(scene: Node, world: SimulationWorld, hud: GameHud) -> void:
     world.reset_run()
     _clear_combat_state(world)
+    paused = false
     world.player_position = Vector2.ZERO
     world.weapon_damage = GameConfig.NEEDLE_DAMAGE
     world.weapon_projectile_count = 1
-    world.targeting_mode = SimulationWorld.TargetingMode.CLOSEST
+    world.owned_weapons.assign(["needle", "sniper", "aura", "detonator"])
+    world._emit_stats()
+
+    assert(hud.weapon_hotbar_labels.size() == GameConfig.WEAPON_SLOT_CAP, "The HUD must expose one targeting slot per weapon slot")
+    assert(hud.weapon_hotbar_labels[0].text.contains("NEEDLE") and hud.weapon_hotbar_labels[0].text.contains("CLOSEST"), "Slot one must show Needle's targeting mode")
+    assert(hud.weapon_hotbar_labels[1].text.contains("LONGSHOT") and hud.weapon_hotbar_labels[1].text.contains("CLOSEST"), "Slot two must show Longshot's independent targeting mode")
+    assert(hud.weapon_hotbar_labels[2].text.contains("AURA PULSE") and hud.weapon_hotbar_labels[2].text.contains("AREA"), "Non-targeted weapons must be labelled AREA")
 
     world._add_enemy(Vector2(100.0, 0.0), 100.0, 0.0, 0.0, 14.0, 0, SimulationWorld.EnemyKind.NORMAL, Vector2.ZERO)
     world._add_enemy(Vector2(0.0, 600.0), 5000.0, 0.0, 0.0, 42.0, 20, SimulationWorld.EnemyKind.BOSS, Vector2.ZERO)
     world._add_enemy(Vector2(300.0, 0.0), 1000.0, 0.0, 0.0, 42.0, 20, SimulationWorld.EnemyKind.BOSS, Vector2.ZERO)
-    assert(world._find_target_enemy(Vector2.ZERO, GameConfig.NEEDLE_RANGE) == 0, "Closest targeting must choose the nearby normal enemy")
+    assert(world._find_target_enemy(Vector2.ZERO, GameConfig.NEEDLE_RANGE, "needle") == 0, "Closest Needle targeting must choose the nearby normal enemy")
+    assert(world._find_target_enemy(Vector2.ZERO, GameConfig.SNIPER_RANGE, "sniper") == 0, "Longshot must begin with its own Closest mode")
 
-    var toggle_event := InputEventKey.new()
-    toggle_event.keycode = KEY_T
-    toggle_event.pressed = true
-    scene.call("_unhandled_input", toggle_event)
-    assert(world.targeting_mode == SimulationWorld.TargetingMode.STRONGEST, "T must toggle targeting to Strongest")
-    assert(world._find_target_enemy(Vector2.ZERO, GameConfig.NEEDLE_RANGE) == 2, "Strongest targeting must prioritize the closest in-range boss")
-    assert(hud.stats_label.text.contains("TARGET STRONGEST"), "The HUD must show the active targeting mode")
+    var slot_one_event := InputEventKey.new()
+    slot_one_event.keycode = KEY_1
+    slot_one_event.pressed = true
+    scene.call("_unhandled_input", slot_one_event)
+    assert(world.get_weapon_targeting_mode("needle") == SimulationWorld.TargetingMode.STRONGEST, "1 must toggle slot one's targeting mode")
+    assert(world.get_weapon_targeting_mode("sniper") == SimulationWorld.TargetingMode.CLOSEST, "Toggling Needle must not change Longshot")
+    assert(world._find_target_enemy(Vector2.ZERO, GameConfig.NEEDLE_RANGE, "needle") == 2, "Strongest Needle targeting must prioritize the closest in-range boss")
+    assert(world._find_target_enemy(Vector2.ZERO, GameConfig.SNIPER_RANGE, "sniper") == 0, "Longshot must retain Closest targeting after Needle changes")
+    assert(hud.weapon_hotbar_labels[0].text.contains("STRONGEST"), "The hotbar must immediately show Needle's new mode")
+    assert(hud.weapon_hotbar_labels[1].text.contains("CLOSEST"), "The hotbar must keep Longshot's independent mode")
 
     world.needle_timer = 0.0
     world._update_needle(0.0)
     assert(world.projectile_positions.size() == 1, "Needle must fire in Strongest mode")
-    assert(world.projectile_velocities[0].x > 0.0 and absf(world.projectile_velocities[0].y) < 0.001, "Strongest Needle fire must aim at the closest boss instead of the farther stronger boss")
+    assert(world.projectile_velocities[0].x > 0.0 and absf(world.projectile_velocities[0].y) < 0.001, "Strongest Needle fire must aim at the closest boss")
+
+    var slot_two_event := InputEventKey.new()
+    slot_two_event.keycode = KEY_2
+    slot_two_event.pressed = true
+    scene.call("_unhandled_input", slot_two_event)
+    assert(world.get_weapon_targeting_mode("sniper") == SimulationWorld.TargetingMode.STRONGEST, "2 must independently toggle Longshot")
+    assert(hud.weapon_hotbar_labels[1].text.contains("STRONGEST"), "Longshot's hotbar slot must show its new mode")
+
+    assert(not world.toggle_weapon_targeting_slot(2), "AREA weapons must ignore targeting toggles")
+    assert(hud.weapon_hotbar_labels[2].text.contains("AREA"), "Ignoring an AREA toggle must leave the hotbar unchanged")
+
+    var slot_four_event := InputEventKey.new()
+    slot_four_event.keycode = KEY_4
+    slot_four_event.pressed = true
+    scene.call("_unhandled_input", slot_four_event)
+    assert(world.get_weapon_targeting_mode("detonator") == SimulationWorld.TargetingMode.STRONGEST, "4 must toggle the fourth targetable weapon slot")
+
+    var toggle_all_event := InputEventKey.new()
+    toggle_all_event.keycode = KEY_T
+    toggle_all_event.pressed = true
+    scene.call("_unhandled_input", toggle_all_event)
+    assert(world.get_weapon_targeting_mode("needle") == SimulationWorld.TargetingMode.CLOSEST, "T must return all-Strongest targetable weapons to Closest")
+    assert(world.get_weapon_targeting_mode("sniper") == SimulationWorld.TargetingMode.CLOSEST, "T must update Longshot together with the other targetable weapons")
+    assert(world.get_weapon_targeting_mode("detonator") == SimulationWorld.TargetingMode.CLOSEST, "T must update Detonator together with the other targetable weapons")
 
     _clear_combat_state(world)
+    world.toggle_weapon_targeting_mode("needle")
     world._add_enemy(Vector2(500.0, 0.0), 5000.0, 0.0, 0.0, 14.0, 0, SimulationWorld.EnemyKind.NORMAL, Vector2.ZERO)
     world._add_enemy(Vector2(150.0, 0.0), 100.0, 0.0, 0.0, 14.0, 0, SimulationWorld.EnemyKind.NORMAL, Vector2.ZERO)
-    assert(world._find_target_enemy(Vector2.ZERO, GameConfig.NEEDLE_RANGE) == 1, "Strongest targeting must fall back to the closest normal enemy when no boss is valid")
-
-    scene.call("_unhandled_input", toggle_event)
-    assert(world.targeting_mode == SimulationWorld.TargetingMode.CLOSEST, "T must toggle targeting back to Closest")
+    assert(world._find_target_enemy(Vector2.ZERO, GameConfig.NEEDLE_RANGE, "needle") == 1, "Strongest targeting must fall back to the closest normal enemy when no boss is valid")
 
 
 func _test_weapon_firing_rules(world: SimulationWorld) -> void:

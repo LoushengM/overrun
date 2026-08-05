@@ -51,7 +51,7 @@ var benchmark_mode := false
 var is_running := false
 var pending_upgrade := false
 var pending_boss_rewards := 0
-var targeting_mode: int = TargetingMode.CLOSEST
+var weapon_targeting_modes: Dictionary = {}
 
 var elapsed_time := 0.0
 var kills := 0
@@ -315,7 +315,9 @@ func reset_run() -> void:
     is_running = true
     pending_upgrade = false
     pending_boss_rewards = 0
-    targeting_mode = TargetingMode.CLOSEST
+    weapon_targeting_modes.clear()
+    for weapon_id in GameConfig.TARGETABLE_WEAPON_IDS:
+        weapon_targeting_modes[weapon_id] = TargetingMode.CLOSEST
     elapsed_time = 0.0
     kills = 0
     level = 1
@@ -490,7 +492,8 @@ func enable_benchmark(expanded_loadout: bool = false) -> void:
         owned_weapons.assign(["needle", "sniper", "aura", "field"])
     weapon_cooldown = 0.07
     weapon_projectile_count = 10
-    weapon_pierce = 5
+    weapon_pierce = GameConfig.WEAPON_UPGRADE_CAPS["needle_pierce"]
+    weapon_upgrade_levels["needle_pierce"] = GameConfig.WEAPON_UPGRADE_CAPS["needle_pierce"]
     sniper_cooldown = 0.55
     sniper_pierce = 3
     aura_cooldown = 0.85
@@ -782,7 +785,7 @@ func _update_needle(delta: float) -> void:
     if needle_timer > 0.0:
         return
 
-    var target_index := _find_target_enemy(player_position, weapon_range)
+    var target_index := _find_target_enemy(player_position, weapon_range, "needle")
     if target_index < 0:
         needle_timer = 0.08
         return
@@ -813,7 +816,7 @@ func _update_sniper(delta: float) -> void:
     if sniper_timer > 0.0:
         return
 
-    var target_index := _find_target_enemy(player_position, sniper_range)
+    var target_index := _find_target_enemy(player_position, sniper_range, "sniper")
     if target_index < 0:
         sniper_timer = 0.10
         return
@@ -947,7 +950,7 @@ func _update_chain(delta: float) -> void:
     if chain_timer > 0.0:
         return
 
-    var target_index := _find_target_enemy(player_position, chain_range)
+    var target_index := _find_target_enemy(player_position, chain_range, "chain")
     if target_index < 0:
         chain_timer = 0.10
         return
@@ -996,7 +999,7 @@ func _update_flak(delta: float) -> void:
     if flak_timer > 0.0:
         return
 
-    var target_index := _find_target_enemy(player_position, flak_range)
+    var target_index := _find_target_enemy(player_position, flak_range, "flak")
     if target_index < 0:
         flak_timer = 0.10
         return
@@ -1072,7 +1075,7 @@ func _update_detonator(delta: float) -> void:
     if detonator_timer > 0.0:
         return
 
-    var target_index := _find_target_enemy(player_position, detonator_range)
+    var target_index := _find_target_enemy(player_position, detonator_range, "detonator")
     if target_index < 0:
         detonator_timer = 0.12
         return
@@ -2242,21 +2245,62 @@ func _update_camera_zoom() -> void:
     camera.zoom = Vector2.ONE * zoom_value
 
 
-func toggle_targeting_mode() -> void:
-    targeting_mode = (
+func is_weapon_targetable(weapon_id: String) -> bool:
+    return GameConfig.TARGETABLE_WEAPON_IDS.has(weapon_id)
+
+
+func get_weapon_targeting_mode(weapon_id: String) -> int:
+    return int(weapon_targeting_modes.get(weapon_id, TargetingMode.CLOSEST))
+
+
+func get_weapon_targeting_mode_name(weapon_id: String) -> String:
+    if not is_weapon_targetable(weapon_id):
+        return "AREA"
+    return (
+        "STRONGEST"
+        if get_weapon_targeting_mode(weapon_id) == TargetingMode.STRONGEST
+        else "CLOSEST"
+    )
+
+
+func toggle_weapon_targeting_mode(weapon_id: String) -> bool:
+    if not is_weapon_targetable(weapon_id) or not owned_weapons.has(weapon_id):
+        return false
+    weapon_targeting_modes[weapon_id] = (
         TargetingMode.STRONGEST
-        if targeting_mode == TargetingMode.CLOSEST
+        if get_weapon_targeting_mode(weapon_id) == TargetingMode.CLOSEST
         else TargetingMode.CLOSEST
     )
     _emit_stats()
+    return true
 
 
-func get_targeting_mode_name() -> String:
-    return "STRONGEST" if targeting_mode == TargetingMode.STRONGEST else "CLOSEST"
+func toggle_weapon_targeting_slot(slot_index: int) -> bool:
+    if slot_index < 0 or slot_index >= owned_weapons.size():
+        return false
+    return toggle_weapon_targeting_mode(owned_weapons[slot_index])
 
 
-func _find_target_enemy(origin: Vector2, max_range: float) -> int:
-    if targeting_mode == TargetingMode.STRONGEST:
+func toggle_all_weapon_targeting_modes() -> bool:
+    var targetable_owned: Array[String] = []
+    var all_strongest := true
+    for weapon_id in owned_weapons:
+        if not is_weapon_targetable(weapon_id):
+            continue
+        targetable_owned.append(weapon_id)
+        if get_weapon_targeting_mode(weapon_id) != TargetingMode.STRONGEST:
+            all_strongest = false
+    if targetable_owned.is_empty():
+        return false
+    var next_mode := TargetingMode.CLOSEST if all_strongest else TargetingMode.STRONGEST
+    for weapon_id in targetable_owned:
+        weapon_targeting_modes[weapon_id] = next_mode
+    _emit_stats()
+    return true
+
+
+func _find_target_enemy(origin: Vector2, max_range: float, weapon_id: String = "needle") -> int:
+    if get_weapon_targeting_mode(weapon_id) == TargetingMode.STRONGEST:
         return _find_strongest_enemy(origin, max_range)
     return _find_nearest_enemy(origin, max_range)
 
@@ -2609,6 +2653,9 @@ func get_player_health_fraction() -> float:
 
 
 func get_stats_snapshot() -> Dictionary:
+    var targeting_modes_snapshot: Dictionary = {}
+    for weapon_id in owned_weapons:
+        targeting_modes_snapshot[weapon_id] = get_weapon_targeting_mode_name(weapon_id)
     return {
         "health": player_health,
         "max_health": player_max_health,
@@ -2638,7 +2685,8 @@ func get_stats_snapshot() -> Dictionary:
         "owned_weapons": owned_weapons.duplicate(),
         "weapon_slots": owned_weapons.size(),
         "weapon_slot_cap": GameConfig.WEAPON_SLOT_CAP,
-        "targeting_mode": get_targeting_mode_name(),
+        "targeting_mode": get_weapon_targeting_mode_name("needle"),
+        "weapon_targeting_modes": targeting_modes_snapshot,
         "character": selected_character,
         "character_name": GameConfig.CHARACTERS.get(selected_character, {}).get("name", selected_character),
         "cooldown": weapon_cooldown,

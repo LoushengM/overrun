@@ -62,10 +62,16 @@ func _unhandled_input(event: InputEvent) -> void:
     var key_event := event as InputEventKey
     if not key_event.pressed or key_event.echo:
         return
+    var weapon_slot_index := _weapon_slot_index(key_event.keycode)
+    if weapon_slot_index >= 0:
+        if world.toggle_weapon_targeting_slot(weapon_slot_index):
+            audio.play_cue("target_toggle")
+        get_viewport().set_input_as_handled()
+        return
     match key_event.keycode:
         KEY_T:
-            world.toggle_targeting_mode()
-            audio.play_cue("target_toggle")
+            if world.toggle_all_weapon_targeting_modes():
+                audio.play_cue("target_toggle")
             get_viewport().set_input_as_handled()
         KEY_F3:
             hud.toggle_performance_overlay()
@@ -74,6 +80,20 @@ func _unhandled_input(event: InputEvent) -> void:
         KEY_ESCAPE:
             get_tree().quit()
             get_viewport().set_input_as_handled()
+
+
+func _weapon_slot_index(keycode: int) -> int:
+    match keycode:
+        KEY_1, KEY_KP_1:
+            return 0
+        KEY_2, KEY_KP_2:
+            return 1
+        KEY_3, KEY_KP_3:
+            return 2
+        KEY_4, KEY_KP_4:
+            return 3
+        _:
+            return -1
 
 
 func _process(_delta: float) -> void:

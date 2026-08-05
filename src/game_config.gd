@@ -126,6 +126,13 @@ const WEAPON_IDS := [
     "orbital",
     "detonator",
 ]
+const TARGETABLE_WEAPON_IDS := [
+    "needle",
+    "sniper",
+    "chain",
+    "flak",
+    "detonator",
+]
 const WEAPON_NAMES := {
     "needle": "Needle",
     "sniper": "Longshot",
@@ -510,7 +517,7 @@ const WEAPON_UPGRADE_IDS := {
 const WEAPON_UPGRADE_CAPS := {
     "needle_fire_rate": 10,
     "needle_projectile_count": 10,
-    "needle_pierce": 10,
+    "needle_pierce": 4,
     "sniper_fire_rate": 8,
     "sniper_pierce": 6,
     "sniper_range": 5,
@@ -602,7 +609,7 @@ const UPGRADE_DESCRIPTIONS := {
     "unlock_field": "Equip persistent slowing damage zones",
     "needle_fire_rate": "-12% Needle cooldown",
     "needle_projectile_count": "+1 Needle projectile per attack",
-    "needle_pierce": "+1 full Needle damage budget",
+    "needle_pierce": "+1 full Needle damage budget (max 4)",
     "sniper_fire_rate": "-10% Longshot cooldown",
     "sniper_pierce": "+1 full Longshot damage budget",
     "sniper_range": "+12% Longshot targeting and travel range",

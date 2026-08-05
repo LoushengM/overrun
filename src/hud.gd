@@ -22,6 +22,7 @@ var health_bar: ProgressBar
 var health_label: Label
 var stats_label: Label
 var build_label: Label
+var weapon_hotbar_labels: Array[Label] = []
 var surge_label: Label
 var boss_notice: Label
 var minimap: BossMinimap
@@ -178,7 +179,7 @@ func update_stats(stats: Dictionary) -> void:
         "LEVEL %d    XP %d / %d\n" % [stats.get("level", 1), stats.get("xp", 0), stats.get("xp_required", 1)]
         + "TIME %s    KILLS %d\n" % [_format_time(stats.get("elapsed", 0.0)), stats.get("kills", 0)]
         + "ENEMIES %d    SHOTS %d    BOSSES %d\n" % [stats.get("enemies", 0), stats.get("projectiles", 0), stats.get("bosses", 0)]
-        + "FPS %d    TARGET %s" % [stats.get("fps", 0), stats.get("targeting_mode", "CLOSEST")]
+        + "FPS %d" % stats.get("fps", 0)
     )
 
     # Every weapon in WEAPON_IDS needs an entry or the loadout line renders "?"
@@ -195,6 +196,7 @@ func update_stats(stats: Dictionary) -> void:
         "detonator": "D",
     }
     var owned_weapon_ids: Array = stats.get("owned_weapons", [])
+    _update_weapon_hotbar(owned_weapon_ids, stats.get("weapon_targeting_modes", {}))
     var loadout_codes: Array[String] = []
     for weapon_id in owned_weapon_ids:
         loadout_codes.append(weapon_codes.get(weapon_id, "?"))
@@ -253,6 +255,31 @@ func update_stats(stats: Dictionary) -> void:
                 float(stats.get("spawn_population_multiplier", 1.0)) * 100.0,
             ]
         )
+
+
+func _update_weapon_hotbar(owned_weapon_ids: Array, targeting_modes_variant: Variant) -> void:
+    var targeting_modes: Dictionary = (
+        targeting_modes_variant
+        if targeting_modes_variant is Dictionary
+        else {}
+    )
+    for slot_index in range(weapon_hotbar_labels.size()):
+        var label := weapon_hotbar_labels[slot_index]
+        if slot_index >= owned_weapon_ids.size():
+            label.text = "[%d]  EMPTY\n—" % (slot_index + 1)
+            label.add_theme_color_override("font_color", UI_MUTED)
+            continue
+        var weapon_id := str(owned_weapon_ids[slot_index])
+        var weapon_name := str(GameConfig.WEAPON_NAMES.get(weapon_id, weapon_id)).to_upper()
+        var mode := str(targeting_modes.get(weapon_id, "AREA"))
+        label.text = "[%d]  %s\n%s" % [slot_index + 1, weapon_name, mode]
+        match mode:
+            "STRONGEST":
+                label.add_theme_color_override("font_color", UI_ORANGE)
+            "CLOSEST":
+                label.add_theme_color_override("font_color", UI_CYAN)
+            _:
+                label.add_theme_color_override("font_color", UI_TEAL)
 
 
 func toggle_performance_overlay() -> bool:
@@ -412,6 +439,8 @@ func _build_interface() -> void:
     build_label.add_theme_color_override("font_color", Color("a8c0c8"))
     root.add_child(build_label)
 
+    _build_weapon_hotbar()
+
     surge_label = Label.new()
     surge_label.position = Vector2(18.0, 178.0)
     surge_label.size = Vector2(260.0, 30.0)
@@ -436,8 +465,8 @@ func _build_interface() -> void:
 
     var controls := Label.new()
     controls.position = Vector2(18.0, 675.0)
-    controls.size = Vector2(620.0, 28.0)
-    controls.text = "MOVE: WASD / ARROWS     T: TARGET MODE     F3: PERFORMANCE     ESC: QUIT"
+    controls.size = Vector2(980.0, 28.0)
+    controls.text = "MOVE: WASD / ARROWS     1–4: TOGGLE WEAPON TARGET     T: TOGGLE ALL     F3: PERFORMANCE     ESC: QUIT"
     controls.add_theme_font_size_override("font_size", 14)
     controls.add_theme_color_override("font_color", UI_MUTED)
     root.add_child(controls)
@@ -467,6 +496,27 @@ func _build_interface() -> void:
     _build_upgrade_overlay()
     _build_death_overlay()
     _build_character_overlay()
+
+
+func _build_weapon_hotbar() -> void:
+    var hotbar_back := Panel.new()
+    hotbar_back.position = Vector2(466.0, 18.0)
+    hotbar_back.size = Vector2(584.0, 80.0)
+    hotbar_back.add_theme_stylebox_override("panel", _make_panel_style(UI_PANEL, UI_BORDER, 2, 7))
+    hotbar_back.mouse_filter = Control.MOUSE_FILTER_IGNORE
+    root.add_child(hotbar_back)
+
+    for slot_index in range(GameConfig.WEAPON_SLOT_CAP):
+        var label := Label.new()
+        label.position = Vector2(6.0 + float(slot_index) * 143.0, 8.0)
+        label.size = Vector2(137.0, 64.0)
+        label.text = "[%d]  EMPTY\n—" % (slot_index + 1)
+        label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+        label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+        label.add_theme_font_size_override("font_size", 13)
+        label.add_theme_color_override("font_color", UI_MUTED)
+        hotbar_back.add_child(label)
+        weapon_hotbar_labels.append(label)
 
 
 func _build_upgrade_overlay() -> void:
