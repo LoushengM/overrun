@@ -100,11 +100,18 @@ func update_stats(stats: Dictionary) -> void:
         + "FPS %d    TARGET %s" % [stats.get("fps", 0), stats.get("targeting_mode", "CLOSEST")]
     )
 
+    # Every weapon in WEAPON_IDS needs an entry or the loadout line renders "?"
+    # for it. The four newer weapons were missing, so an expanded loadout was
+    # unreadable during play.
     var weapon_codes := {
         "needle": "N",
         "sniper": "S",
         "aura": "A",
         "field": "F",
+        "chain": "C",
+        "flak": "K",
+        "orbital": "O",
+        "detonator": "D",
     }
     var owned_weapon_ids: Array = stats.get("owned_weapons", [])
     var loadout_codes: Array[String] = []

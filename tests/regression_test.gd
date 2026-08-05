@@ -361,6 +361,59 @@ func _test_boss_scaling_and_protection(world: SimulationWorld) -> void:
     world._resolve_hits()
     assert(is_equal_approx(world.enemy_health[0], 880.0), "Boss health must reflect protected follow-up damage")
 
+    _test_boss_phases(world)
+
+
+func _test_boss_phases(world: SimulationWorld) -> void:
+    # Phase is derived from the health fraction, so drive it by setting health
+    # directly rather than by simulating a whole fight.
+    _clear_combat_state(world)
+    world._add_enemy(Vector2(100.0, 0.0), 1000.0, 0.0, 0.0, 42.0, 20, SimulationWorld.EnemyKind.BOSS, Vector2.ZERO)
+
+    world.enemy_health[0] = 1000.0
+    assert(world._boss_phase(0) == 0, "A full-health boss must be in phase one")
+    world.enemy_health[0] = 700.0
+    assert(world._boss_phase(0) == 0, "Above the phase two threshold must stay phase one")
+    world.enemy_health[0] = 660.0
+    assert(world._boss_phase(0) == 1, "At the phase two threshold the boss must escalate")
+    world.enemy_health[0] = 400.0
+    assert(world._boss_phase(0) == 1, "Between thresholds must stay phase two")
+    world.enemy_health[0] = 330.0
+    assert(world._boss_phase(0) == 2, "At the phase three threshold the boss must escalate again")
+    world.enemy_health[0] = 1.0
+    assert(world._boss_phase(0) == 2, "Near death must stay phase three")
+
+    # A zero max health must not divide by zero mid-frame.
+    world.enemy_max_health[0] = 0.0
+    assert(world._boss_phase(0) == 0, "A zero max health must fall back to phase one")
+    world.enemy_max_health[0] = 1000.0
+
+    # Escalation has to be monotonic in the direction that matters: later
+    # phases telegraph for less time, attack sooner, hit wider, and close
+    # faster. Otherwise "multi-phase" is just different, not harder.
+    for phase in range(2):
+        assert(
+            float(GameConfig.BOSS_PHASE_TELEGRAPH[phase + 1]) < float(GameConfig.BOSS_PHASE_TELEGRAPH[phase]),
+            "Each phase must telegraph faster than the last"
+        )
+        assert(
+            float(GameConfig.BOSS_PHASE_ATTACK_INTERVAL[phase + 1]) < float(GameConfig.BOSS_PHASE_ATTACK_INTERVAL[phase]),
+            "Each phase must attack more often than the last"
+        )
+        assert(
+            float(GameConfig.BOSS_PHASE_SLAM_RADIUS[phase + 1]) > float(GameConfig.BOSS_PHASE_SLAM_RADIUS[phase]),
+            "Each phase must slam wider than the last"
+        )
+        assert(
+            float(GameConfig.BOSS_PHASE_SPEED_MULTIPLIER[phase + 1]) > float(GameConfig.BOSS_PHASE_SPEED_MULTIPLIER[phase]),
+            "Each phase must close faster than the last"
+        )
+
+    # The telegraph must still be long enough to dodge at the widest radius.
+    assert(float(GameConfig.BOSS_PHASE_TELEGRAPH[2]) > 0.5, "The final phase must stay dodgeable")
+
+    _clear_combat_state(world)
+
 
 func _test_weapon_slots_and_boss_rewards(scene: Node, world: SimulationWorld, hud: GameHud) -> void:
     _clear_combat_state(world)

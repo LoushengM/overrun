@@ -567,17 +567,20 @@ func _update_enemies(delta: float) -> void:
             else:
                 direction = WorldSpace.direction(position, player_position)
 
+            # Phase is derived from the health fraction, so a boss escalates as
+            # it is worn down without storing any extra per-entity state.
+            var boss_phase := _boss_phase(i)
             if enemy_boss_telegraph[i] > 0.0:
                 var previous_telegraph := enemy_boss_telegraph[i]
                 enemy_boss_telegraph[i] = maxf(0.0, previous_telegraph - delta)
                 if previous_telegraph > 0.0 and enemy_boss_telegraph[i] <= 0.0:
-                    if distance_to_player <= 220.0:
+                    if distance_to_player <= float(GameConfig.BOSS_PHASE_SLAM_RADIUS[boss_phase]):
                         _apply_player_damage(enemy_damage[i], true)
-            elif distance_to_player <= 650.0:
+            elif distance_to_player <= GameConfig.BOSS_ENGAGE_RANGE:
                 enemy_boss_attack_timer[i] -= delta
                 if enemy_boss_attack_timer[i] <= 0.0:
-                    enemy_boss_telegraph[i] = 1.1
-                    enemy_boss_attack_timer[i] = 4.5
+                    enemy_boss_telegraph[i] = float(GameConfig.BOSS_PHASE_TELEGRAPH[boss_phase])
+                    enemy_boss_attack_timer[i] = float(GameConfig.BOSS_PHASE_ATTACK_INTERVAL[boss_phase])
                     _request_sound("boss_telegraph")
         else:
             if distance_to_player > 0.001:
@@ -594,7 +597,7 @@ func _update_enemies(delta: float) -> void:
                     if distance_to_player <= GameConfig.ARCHETYPE_RANGED_STANDOFF * 2.0 and distance_to_player > 0.001:
                         _spawn_enemy_shot(position, to_player / distance_to_player, enemy_damage[i])
 
-        var movement_multiplier := _current_boss_speed_scale() if enemy_kinds[i] == EnemyKind.BOSS else _current_normal_speed_scale()
+        var movement_multiplier := _current_boss_speed_scale() * float(GameConfig.BOSS_PHASE_SPEED_MULTIPLIER[_boss_phase(i)]) if enemy_kinds[i] == EnemyKind.BOSS else _current_normal_speed_scale()
         if enemy_kinds[i] == EnemyKind.NORMAL:
             movement_multiplier *= _surge_speed_multiplier(distance_to_player)
         movement_multiplier *= _field_slow_multiplier_at(position)
@@ -1854,6 +1857,21 @@ func _current_normal_enemy_health() -> float:
     return GameConfig.NORMAL_ENEMY_HEALTH * health_scale
 
 
+func _boss_phase(enemy_index: int) -> int:
+    # Upper-bound thresholds: full health is phase one, the last third phase
+    # three. Guards against a zero max so a freshly cleared array cannot divide
+    # by zero mid-frame.
+    var max_health := enemy_max_health[enemy_index]
+    if max_health <= 0.0:
+        return 0
+    var fraction := clampf(enemy_health[enemy_index] / max_health, 0.0, 1.0)
+    if fraction <= GameConfig.BOSS_PHASE_THREE_HEALTH:
+        return 2
+    if fraction <= GameConfig.BOSS_PHASE_TWO_HEALTH:
+        return 1
+    return 0
+
+
 func _current_boss_health() -> float:
     var minutes := _paced_minutes()
     var health_scale := (
@@ -2446,9 +2464,12 @@ func _draw() -> void:
             draw_rect(Rect2(position + Vector2(-48.0, -58.0), Vector2(96.0, 7.0)), Color(0.08, 0.08, 0.10, 0.9), true)
             draw_rect(Rect2(position + Vector2(-48.0, -58.0), Vector2(96.0 * health_fraction, 7.0)), Color(0.95, 0.22, 0.28, 1.0), true)
             if enemy_boss_telegraph[i] > 0.0:
+                # The telegraph ring has to match the radius the slam will
+                # actually check, or a later phase kills outside the warning.
+                var slam_radius := float(GameConfig.BOSS_PHASE_SLAM_RADIUS[_boss_phase(i)])
                 var pulse := 0.45 + 0.35 * sin(Time.get_ticks_msec() * 0.018)
-                draw_circle(position, 220.0, Color(1.0, 0.12, 0.08, pulse * 0.18))
-                draw_arc(position, 220.0, 0.0, TAU, 80, Color(1.0, 0.24, 0.12, pulse), 5.0)
+                draw_circle(position, slam_radius, Color(1.0, 0.12, 0.08, pulse * 0.18))
+                draw_arc(position, slam_radius, 0.0, TAU, 80, Color(1.0, 0.24, 0.12, pulse), 5.0)
         else:
             continue
 

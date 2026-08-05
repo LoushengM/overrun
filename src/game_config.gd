@@ -347,6 +347,19 @@ const BOSS_XP := 20
 const FIRST_BOSS_TIME := 45.0
 const BOSS_INTERVAL := 90.0
 
+# Multi-phase bosses. Phase is a pure function of the boss's current health
+# fraction, so it needs no extra per-entity array: as the fight wears on the
+# telegraph shortens, the slam widens, and the boss closes faster. Thresholds
+# are upper bounds -- above BOSS_PHASE_TWO_HEALTH the boss is in phase one.
+const BOSS_PHASE_TWO_HEALTH := 0.66
+const BOSS_PHASE_THREE_HEALTH := 0.33
+# Index 0/1/2 = phase one/two/three.
+const BOSS_PHASE_TELEGRAPH := [1.10, 0.85, 0.62]
+const BOSS_PHASE_ATTACK_INTERVAL := [4.50, 3.40, 2.60]
+const BOSS_PHASE_SLAM_RADIUS := [220.0, 252.0, 288.0]
+const BOSS_PHASE_SPEED_MULTIPLIER := [1.0, 1.12, 1.26]
+const BOSS_ENGAGE_RANGE := 650.0
+
 const HEALTH_PICKUP_HEAL := 0.20
 const HEALTH_PICKUP_DROP_CHANCE := 0.006
 const CONTACT_DAMAGE_COOLDOWN := 0.20
