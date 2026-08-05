@@ -184,6 +184,33 @@ func _test_visual_overhaul_assets(world: SimulationWorld, hud: GameHud) -> void:
 
     _clear_combat_state(world)
     world.player_position = Vector2.ZERO
+    world.pickup_positions.append(Vector2(900.0, 0.0))
+    world.pickup_positions.append(Vector2(GameConfig.WORLD_HALF_SIZE - 1.0, 0.0))
+    var radar_center := hud.minimap.size * 0.5
+    var radar_radius := minf(hud.minimap.size.x, hud.minimap.size.y) * 0.5 - 13.0
+
+    world.player_health = world.player_max_health * 0.50
+    var healthy_marker_count := hud.minimap._update_marker_instances(radar_center, radar_radius)
+    assert(healthy_marker_count == 1, "Pickup markers must remain hidden at or above 50% health")
+
+    world.player_health = world.player_max_health * 0.49
+    var low_health_marker_count := hud.minimap._update_marker_instances(radar_center, radar_radius)
+    assert(low_health_marker_count == 3, "Every pickup must appear once health drops below 50%")
+    var distant_relative := WorldSpace.delta(
+        world.player_position,
+        world.pickup_positions[1]
+    ) * (radar_radius / (GameConfig.WORLD_HALF_SIZE * 0.72))
+    var distant_marker := hud.minimap._radar_marker_position(
+        radar_center,
+        distant_relative,
+        radar_radius - 10.0
+    )
+    assert(
+        is_equal_approx(distant_marker.distance_to(radar_center), radar_radius - 10.0),
+        "Distant low-health pickups must pin to the radar rim instead of disappearing"
+    )
+
+    world.pickup_positions.clear()
     world.field_positions.append(Vector2(50.0, 0.0))
     world.field_lifetimes.append(world.field_duration)
     world.field_tick_timers.append(1.0)

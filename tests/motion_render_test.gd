@@ -12,7 +12,7 @@ func _run() -> void:
     await process_frame
 
     var world := scene.get_node("World") as SimulationWorld
-    var hud := scene.get_node("HUD") as CanvasLayer
+    var hud := scene.get_node("HUD") as GameHud
     hud.visible = false
     world.reset_run()
     world.is_running = false
@@ -30,6 +30,8 @@ func _run() -> void:
     _verify_captures(first, second)
     var ranged_capture: Image = await _capture_ranged_threat(world)
     _verify_ranged_threat(ranged_capture)
+    var radar_capture: Image = await _capture_pickup_radar(world, hud)
+    _verify_pickup_radar(radar_capture)
 
     scene.queue_free()
     await process_frame
@@ -46,6 +48,40 @@ func _capture(world: SimulationWorld, position: Vector2, frame_count: int) -> Im
     for frame_index in range(frame_count):
         await process_frame
     return root.get_viewport().get_texture().get_image()
+
+
+func _capture_pickup_radar(world: SimulationWorld, hud: GameHud) -> Image:
+    hud.reset_display()
+    world.pickup_positions.clear()
+    world.player_health = world.player_max_health * 0.49
+    world.pickup_positions.append(world.player_position + Vector2(900.0, 0.0))
+    hud.visible = true
+    hud.minimap._update_marker_instances()
+    hud.minimap.queue_redraw()
+    for frame_index in range(3):
+        await process_frame
+    return root.get_viewport().get_texture().get_image()
+
+
+func _verify_pickup_radar(image: Image) -> void:
+    # HUD minimap origin is (1068, 18). A pickup 900 world pixels to the right
+    # lands about 34 screen pixels right of radar center, away from the player,
+    # sweep origin, rings, and border.
+    var teal_pixels := 0
+    var white_pixels := 0
+    for y in range(103, 128):
+        for x in range(1188, 1215):
+            var color := image.get_pixel(x, y)
+            if color.g > 0.62 and color.b > 0.52 and color.g > color.r * 1.45:
+                teal_pixels += 1
+            if color.r > 0.82 and color.g > 0.82 and color.b > 0.82:
+                white_pixels += 1
+    print("PICKUP_RADAR_METRICS ", JSON.stringify({
+        "teal_pixels": teal_pixels,
+        "white_pixels": white_pixels,
+    }))
+    assert(teal_pixels >= 20, "A low-health player must see the teal pickup marker on the radar")
+    assert(white_pixels >= 8, "The pickup radar marker must retain its white repair cross")
 
 
 func _capture_ranged_threat(world: SimulationWorld) -> Image:

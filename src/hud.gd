@@ -428,7 +428,7 @@ func _build_interface() -> void:
     var minimap_label := Label.new()
     minimap_label.position = Vector2(1068.0, 214.0)
     minimap_label.size = Vector2(194.0, 24.0)
-    minimap_label.text = "BOSS RADAR"
+    minimap_label.text = "TACTICAL RADAR"
     minimap_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
     minimap_label.add_theme_font_size_override("font_size", 13)
     minimap_label.add_theme_color_override("font_color", UI_CYAN)

@@ -70,6 +70,20 @@ func _draw() -> void:
     if marker_multimesh == null or marker_texture == null:
         return
 
+    _update_marker_instances(center, radar_radius)
+    draw_multimesh(marker_multimesh, marker_texture)
+
+
+# Repair markers remain a low-health aid, but every uncollected pickup must be
+# discoverable once the player drops below half health. Distant pickups pin to
+# the radar rim like bosses instead of vanishing outside the local radar range.
+func _update_marker_instances(
+    center: Vector2 = size * 0.5,
+    radar_radius: float = minf(size.x, size.y) * 0.5 - 13.0
+) -> int:
+    if marker_multimesh == null:
+        return 0
+
     var marker_count := 0
     marker_count = _write_marker(marker_count, center, 0.80, MarkerFrame.PLAYER, Color.WHITE)
     if world != null:
@@ -78,7 +92,7 @@ func _draw() -> void:
             if marker_count >= marker_multimesh.instance_count:
                 break
             var relative := WorldSpace.delta(world.player_position, boss_position) * scale_factor
-            var marker := center + relative.limit_length(radar_radius - 7.0)
+            var marker := _radar_marker_position(center, relative, radar_radius - 7.0)
             marker_count = _write_marker(marker_count, marker, 1.0, MarkerFrame.BOSS, Color.WHITE)
 
         if world.get_player_health_fraction() < 0.50:
@@ -86,17 +100,20 @@ func _draw() -> void:
                 if marker_count >= marker_multimesh.instance_count:
                     break
                 var relative := WorldSpace.delta(world.player_position, pickup_position) * scale_factor
-                if relative.length() > radar_radius - 5.0:
-                    continue
+                var marker := _radar_marker_position(center, relative, radar_radius - 10.0)
                 marker_count = _write_marker(
                     marker_count,
-                    center + relative,
-                    0.56,
+                    marker,
+                    0.90,
                     MarkerFrame.PICKUP,
                     Color.WHITE
                 )
     marker_multimesh.visible_instance_count = marker_count
-    draw_multimesh(marker_multimesh, marker_texture)
+    return marker_count
+
+
+func _radar_marker_position(center: Vector2, relative: Vector2, max_radius: float) -> Vector2:
+    return center + relative.limit_length(max_radius)
 
 
 func _write_marker(
@@ -171,12 +188,14 @@ func _make_marker_atlas(frame_size: int) -> Texture2D:
     _image_line(image, boss_origin + center + Vector2i(0, 7), boss_origin + center + Vector2i(-7, 0), 1, Color("ffb143"))
     _image_line(image, boss_origin + center + Vector2i(-7, 0), boss_origin + center + Vector2i(0, -7), 1, Color("ffb143"))
 
-    # Pickup: compact teal repair signal.
+    # Pickup: high-contrast teal repair signal. It remains readable after the
+    # marker is scaled and pinned to the radar rim.
     var pickup_origin := Vector2i(frame_size, 0)
-    _image_circle(image, pickup_origin + center, 7, Color(0.23, 0.95, 0.81, 0.24), true)
-    _image_circle(image, pickup_origin + center, 4, Color("3bf2cf"), true)
-    _image_line(image, pickup_origin + center + Vector2i(-5, 0), pickup_origin + center + Vector2i(5, 0), 2, Color.WHITE)
-    _image_line(image, pickup_origin + center + Vector2i(0, -5), pickup_origin + center + Vector2i(0, 5), 2, Color.WHITE)
+    _image_circle(image, pickup_origin + center, 10, Color(0.23, 0.95, 0.81, 0.34), true)
+    _image_circle(image, pickup_origin + center, 6, Color("3bf2cf"), true)
+    _image_circle(image, pickup_origin + center, 4, Color("0b5f59"), true)
+    _image_line(image, pickup_origin + center + Vector2i(-7, 0), pickup_origin + center + Vector2i(7, 0), 2, Color.WHITE)
+    _image_line(image, pickup_origin + center + Vector2i(0, -7), pickup_origin + center + Vector2i(0, 7), 2, Color.WHITE)
 
     # Player: forward-facing cyan operator arrow.
     var player_origin := Vector2i(frame_size * 2, 0)
