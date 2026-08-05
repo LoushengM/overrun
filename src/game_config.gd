@@ -190,6 +190,22 @@ const HEALTH_PICKUP_HEAL := 0.20
 const HEALTH_PICKUP_DROP_CHANCE := 0.006
 const CONTACT_DAMAGE_COOLDOWN := 0.20
 
+# Spawn pressure cycles instead of climbing monotonically: a long ramp, a short
+# spike, then a collapse that gives the player room to reposition and collect.
+# The cycle multiplies the minute-based base rate, so later cycles are harder in
+# absolute terms even though the shape repeats. Fractions are points along one
+# period and must stay ordered: 0 < RAMP < SPIKE < 1.
+const PHASE_PERIOD_SECONDS := 55.0
+const PHASE_RAMP_FRACTION := 0.55
+const PHASE_SPIKE_FRACTION := 0.80
+# The ramp starts at exactly 1.0 so the opening seconds of a run still deliver
+# the documented baseline throughput (regression_test.gd guards 16 enemies/sec
+# at t=0). Breathing room comes from the collapse window, not from a soft open.
+const PHASE_RAMP_START_MULTIPLIER := 1.00
+const PHASE_RAMP_END_MULTIPLIER := 1.30
+const PHASE_SPIKE_MULTIPLIER := 2.10
+const PHASE_COLLAPSE_MULTIPLIER := 0.35
+
 const SURGE_ENTER_COUNT := 5
 const SURGE_EXIT_COUNT := 25
 const SURGE_MAX_DURATION := 7.0

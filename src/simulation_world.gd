@@ -942,6 +942,7 @@ func _update_spawning(delta: float) -> void:
     var surge_multiplier := 1.0
     if surge_active:
         surge_multiplier = 1.0 + 3.0 * minf(1.0, surge_time / GameConfig.SURGE_RAMP_TIME)
+    surge_multiplier *= _phase_spawn_multiplier()
 
     spawn_accumulator += base_rate * surge_multiplier * delta
     var spawned_this_tick := 0
@@ -952,6 +953,27 @@ func _update_spawning(delta: float) -> void:
 
     var max_spawn_debt := base_rate * surge_multiplier * GameConfig.MAX_SPAWN_DEBT_SECONDS
     spawn_accumulator = minf(spawn_accumulator, max_spawn_debt)
+
+
+# Ramp -> spike -> collapse, repeating. Returns a multiplier on the base spawn
+# rate; phase position comes from paced time so it stays in step with the
+# difficulty curve rather than wall-clock.
+func _phase_spawn_multiplier() -> float:
+    var phase := fposmod(_paced_elapsed_time(), GameConfig.PHASE_PERIOD_SECONDS) / GameConfig.PHASE_PERIOD_SECONDS
+    if phase < GameConfig.PHASE_RAMP_FRACTION:
+        return lerpf(
+            GameConfig.PHASE_RAMP_START_MULTIPLIER,
+            GameConfig.PHASE_RAMP_END_MULTIPLIER,
+            phase / GameConfig.PHASE_RAMP_FRACTION
+        )
+    if phase < GameConfig.PHASE_SPIKE_FRACTION:
+        return lerpf(
+            GameConfig.PHASE_RAMP_END_MULTIPLIER,
+            GameConfig.PHASE_SPIKE_MULTIPLIER,
+            (phase - GameConfig.PHASE_RAMP_FRACTION)
+            / (GameConfig.PHASE_SPIKE_FRACTION - GameConfig.PHASE_RAMP_FRACTION)
+        )
+    return GameConfig.PHASE_COLLAPSE_MULTIPLIER
 
 
 func _update_boss_schedule() -> void:
