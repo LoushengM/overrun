@@ -6,6 +6,7 @@ extends Node
 
 var benchmark_mode := false
 var benchmark_expanded := false
+var level_up_choice_open := false
 
 
 func _ready() -> void:
@@ -41,11 +42,13 @@ func _ready() -> void:
 # The select screen pauses the tree, which halts the world (PROCESS_MODE_PAUSABLE)
 # while leaving this node and the HUD running to take the choice.
 func _open_character_select() -> void:
+    level_up_choice_open = false
     get_tree().paused = true
     hud.show_character_select(world.selected_character)
 
 
 func _on_character_selected(character_id: String) -> void:
+    level_up_choice_open = false
     audio.play_cue("character_select")
     world.select_character(character_id)
     world.reset_run()
@@ -84,6 +87,7 @@ func _on_level_up_requested(options: Array[String]) -> void:
         if not options.is_empty():
             world.apply_upgrade(options[0])
         return
+    level_up_choice_open = true
     audio.play_cue("level_up")
     get_tree().paused = true
     hud.show_upgrade(options, "LEVEL UP", "Choose any eligible upgrade")
@@ -94,6 +98,7 @@ func _on_boss_upgrade_requested(options: Array[String]) -> void:
         if not options.is_empty():
             world.apply_upgrade(options[0])
         return
+    level_up_choice_open = false
     audio.play_cue("boss_reward")
     get_tree().paused = true
     hud.show_upgrade(options, "BOSS REWARD", "Choose a new weapon or an owned-weapon upgrade")
@@ -101,7 +106,11 @@ func _on_boss_upgrade_requested(options: Array[String]) -> void:
 
 func _on_upgrade_selected(upgrade_id: String) -> void:
     audio.play_cue("weapon_unlock" if GameConfig.WEAPON_UNLOCK_IDS.has(upgrade_id) else "upgrade_select")
+    var grant_level_up_invulnerability := level_up_choice_open
     world.apply_upgrade(upgrade_id)
+    if grant_level_up_invulnerability and not world.pending_upgrade:
+        world.grant_player_invulnerability(GameConfig.PLAYER_LEVEL_UP_INVULNERABILITY)
+    level_up_choice_open = false
     hud.hide_upgrade()
     get_tree().paused = false
 
@@ -116,6 +125,7 @@ func _on_run_ended(summary: Dictionary) -> void:
 
 
 func _restart_run(change_character: bool = false) -> void:
+    level_up_choice_open = false
     audio.stop_all()
     get_tree().paused = false
     hud.reset_display()

@@ -1859,6 +1859,10 @@ func _player_hit_invulnerability_duration() -> float:
     return GameConfig.PLAYER_HIT_INVULNERABILITY * multiplier
 
 
+func grant_player_invulnerability(duration: float) -> void:
+    player_invulnerability_timer = maxf(player_invulnerability_timer, maxf(0.0, duration))
+
+
 func _end_run() -> void:
     if not is_running:
         return

@@ -327,6 +327,7 @@ func _test_pause_and_keyboard_selection(scene: Node, world: SimulationWorld, hud
     assert(world.process_mode == Node.PROCESS_MODE_PAUSABLE, "World must stop processing during upgrades")
 
     world.pending_upgrade = true
+    world.player_invulnerability_timer = 0.0
     var old_pierce := world.weapon_pierce
     var options: Array[String] = ["damage", "needle_pierce", "armor"]
     scene.call("_on_level_up_requested", options)
@@ -347,9 +348,14 @@ func _test_pause_and_keyboard_selection(scene: Node, world: SimulationWorld, hud
     hud._input(space_event)
     assert(not paused, "Space must confirm the focused upgrade and resume the scene tree")
     assert(world.weapon_pierce == old_pierce + 1, "Space must apply the focused second upgrade")
+    assert(
+        is_equal_approx(world.player_invulnerability_timer, GameConfig.PLAYER_LEVEL_UP_INVULNERABILITY),
+        "Choosing a level-up upgrade must grant a short escape window"
+    )
     assert(audio.last_cue_requested == "upgrade_select", "Confirming a stat upgrade must play its digital confirmation")
 
     world.pending_upgrade = true
+    world.player_invulnerability_timer = GameConfig.PLAYER_LEVEL_UP_INVULNERABILITY * 1.5
     var old_armor := world.player_armor
     scene.call("_on_level_up_requested", options)
     var up_event := InputEventKey.new()
@@ -364,6 +370,13 @@ func _test_pause_and_keyboard_selection(scene: Node, world: SimulationWorld, hud
     hud._input(enter_event)
     assert(not paused, "Enter must confirm the focused upgrade and resume the scene tree")
     assert(world.player_armor > old_armor, "Enter must apply the focused last upgrade")
+    assert(
+        is_equal_approx(
+            world.player_invulnerability_timer,
+            GameConfig.PLAYER_LEVEL_UP_INVULNERABILITY * 1.5
+        ),
+        "Level-up protection must preserve a longer invulnerability timer already in progress"
+    )
 
     var performance_event := InputEventKey.new()
     performance_event.keycode = KEY_F3
@@ -842,6 +855,7 @@ func _test_weapon_slots_and_boss_rewards(scene: Node, world: SimulationWorld, hu
     assert(not world._roll_weapon_upgrade_options().has("needle_projectile_count"), "Capped upgrades must disappear from boss rewards")
     world.weapon_upgrade_levels["needle_projectile_count"] = 0
 
+    world.player_invulnerability_timer = 0.0
     world._check_boss_reward()
     assert(paused, "A boss reward must pause the run")
     assert(hud.upgrade_title.text == "BOSS REWARD", "Boss rewards must use a distinct title")
@@ -851,6 +865,10 @@ func _test_weapon_slots_and_boss_rewards(scene: Node, world: SimulationWorld, hu
     boss_key_event.pressed = true
     hud._input(boss_key_event)
     assert(not paused, "Choosing a boss reward must resume the run")
+    assert(
+        is_zero_approx(world.player_invulnerability_timer),
+        "Boss rewards must not grant the level-up escape window"
+    )
     assert(GameConfig.WEAPON_UNLOCK_IDS.has(chosen_upgrade), "The guaranteed first boss choice should be a weapon unlock")
     assert(world.owned_weapons.size() == 2, "Choosing a new weapon must occupy a second slot")
 
