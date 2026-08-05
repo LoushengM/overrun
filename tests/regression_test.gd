@@ -17,6 +17,7 @@ func _run() -> void:
 
     _test_audio_wiring(audio, world, hud)
     _test_visual_overhaul_assets(world, hud)
+    _test_incremental_spatial_grid(world)
     _test_pause_and_keyboard_selection(scene, world, hud, audio)
     _test_restart_input_and_character_reuse(scene, world, hud, audio)
     _test_projectile_damage_conservation(world)
@@ -138,15 +139,21 @@ func _test_audio_wiring(audio: SoundManager, world: SimulationWorld, hud: GameHu
 func _test_visual_overhaul_assets(world: SimulationWorld, hud: GameHud) -> void:
     assert(world.sprite_atlas_texture != null, "The robot enemy atlas must load")
     assert(world.sprite_atlas_texture.get_size() == Vector2(192, 96), "The robot atlas must keep eight 48px frames")
-    assert(world.floor_texture != null and world.floor_texture.get_size() == Vector2(192, 192), "The industrial floor texture must be generated")
+    assert(world.floor_texture != null and world.floor_texture.get_size() == Vector2(768, 768), "The industrial floor must be baked into one low-draw-call tile")
     assert(world.projectile_texture != null and world.projectile_texture.get_size() == Vector2(288, 48), "The compact-effect atlas must contain six 48px frames")
     assert(world.world_effect_texture != null and world.world_effect_texture.get_size() == Vector2(576, 192), "The large-effect atlas must contain three 192px frames")
     assert(world.boss_texture != null and world.boss_texture.get_size() == Vector2(160, 160), "The spider boss must use one baked texture")
     assert(world.player_texture != null and world.player_texture.get_size() == Vector2(96, 96), "The operator must use one baked texture")
     assert(world.normal_enemy_multimesh.use_custom_data, "Enemy batching must retain atlas UV custom data")
+    assert(not world.normal_enemy_multimesh.use_colors, "Enemy buffers must not upload an unused all-white color")
+    assert(not world.boss_multimesh.use_colors and not world.boss_multimesh.use_custom_data, "Boss buffers must contain transforms only")
+    assert(world.normal_enemy_buffer.size() == GameConfig.ENEMY_CAP * SimulationWorld.MULTIMESH_CUSTOM_STRIDE, "Enemy bulk buffers must match the compact transform-plus-custom layout")
+    assert(world.projectile_buffer.size() == SimulationWorld.COMPACT_VISUAL_CAP * SimulationWorld.MULTIMESH_FULL_STRIDE, "Compact visuals must use the bounded bulk buffer")
     assert(world.projectile_multimesh.use_custom_data, "Compact effects must select atlas frames through custom data")
     assert(world.world_effect_multimesh.use_custom_data, "Large effects must select atlas frames through custom data")
-    assert(world.projectile_multimesh.instance_count == GameConfig.PROJECTILE_CAP + GameConfig.ENEMY_SHOT_CAP + GameConfig.DETONATOR_BLAST_CAP + GameConfig.ORBITAL_CAP, "The compact batch must reserve every supported visual")
+    assert(world.projectile_multimesh.instance_count == SimulationWorld.COMPACT_VISUAL_CAP, "The compact render batch must stay bounded independently of the simulation cap")
+    assert(hud.minimap.radar_texture != null, "The radar face must be baked into one texture")
+    assert(hud.minimap.marker_multimesh != null and hud.minimap.marker_multimesh.use_custom_data, "Radar markers must share one atlas batch")
     assert(hud.upgrade_buttons[0].get_theme_stylebox("focus") is StyleBoxFlat, "Upgrade buttons must expose the cyan keyboard-focus treatment")
 
     _clear_combat_state(world)
@@ -175,6 +182,75 @@ func _test_visual_overhaul_assets(world: SimulationWorld, hud: GameHud) -> void:
     assert(world.projectile_multimesh.visible_instance_count == 3, "Enemy bolts, shells, and orbitals must share the compact batch")
     assert(world.boss_multimesh.visible_instance_count == 1, "Boss bodies must render through one batch")
     world.reset_run()
+
+
+func _test_incremental_spatial_grid(world: SimulationWorld) -> void:
+    _clear_combat_state(world)
+    world.player_position = Vector2.ZERO
+    world._add_enemy(Vector2(100.0, 100.0), 100.0, 0.0, 0.0, 14.0, 0, SimulationWorld.EnemyKind.NORMAL, Vector2.ZERO)
+    world._add_enemy(Vector2(120.0, 110.0), 100.0, 0.0, 0.0, 14.0, 0, SimulationWorld.EnemyKind.NORMAL, Vector2.ZERO)
+    world._add_enemy(Vector2(900.0, 700.0), 100.0, 0.0, 0.0, 14.0, 0, SimulationWorld.EnemyKind.NORMAL, Vector2.ZERO)
+    _assert_enemy_grid_consistent(world)
+
+    world.enemy_positions[0] = Vector2(1200.0, 900.0)
+    world._grid_move_enemy(0, world.enemy_positions[0])
+    _assert_enemy_grid_consistent(world)
+    assert(world._find_nearest_enemy(Vector2(1200.0, 900.0), 80.0) == 0, "Target queries must see an enemy after it crosses grid cells")
+
+    # Removing a middle element swap-moves the last enemy. Its bucket entry,
+    # cell, and slot must all be rewritten to the new compact-array index.
+    world.enemy_health[1] = 0.0
+    world._process_deaths()
+    assert(world.enemy_positions.size() == 2, "The grid regression must remove one enemy")
+    _assert_enemy_grid_consistent(world)
+
+    world.field_positions.append(Vector2(1200.0, 900.0))
+    world.field_lifetimes.append(5.0)
+    world.field_tick_timers.append(1.0)
+    world.field_radii.append(120.0)
+    world._rebuild_field_grid()
+    assert(world._field_slow_multiplier_at(Vector2(1200.0, 900.0)) == GameConfig.FIELD_SLOW_MULTIPLIER, "Field slowdown must query the field grid")
+    assert(is_equal_approx(world._field_slow_multiplier_at(Vector2(1600.0, 900.0)), 1.0), "Field slowdown must reject distant cells")
+
+    # A synchronized field stack must be spread over multiple physics ticks
+    # rather than creating one large periodic spike.
+    _clear_combat_state(world)
+    world._add_enemy(Vector2.ZERO, 100000.0, 0.0, 0.0, 14.0, 0, SimulationWorld.EnemyKind.NORMAL, Vector2.ZERO)
+    for field_index in range(SimulationWorld.FIELD_TICK_BUDGET * 2):
+        world.field_positions.append(Vector2.ZERO)
+        world.field_lifetimes.append(10.0)
+        world.field_tick_timers.append(0.0)
+        world.field_radii.append(100.0)
+    world._rebuild_field_grid()
+    world.hit_targets.clear()
+    world.hit_damage.clear()
+    world._update_fields(0.0)
+    assert(world.hit_targets.size() == SimulationWorld.FIELD_TICK_BUDGET, "Only the bounded field-work budget may resolve in one tick")
+    world.hit_targets.clear()
+    world.hit_damage.clear()
+    world._update_fields(0.0)
+    assert(world.hit_targets.size() == SimulationWorld.FIELD_TICK_BUDGET, "The rotating field cursor must process the deferred half on the next tick")
+    _clear_combat_state(world)
+
+
+func _assert_enemy_grid_consistent(world: SimulationWorld) -> void:
+    var enemy_count := world.enemy_positions.size()
+    assert(world.enemy_grid_cells.size() == enemy_count, "Every enemy must own one grid cell")
+    assert(world.enemy_grid_slots.size() == enemy_count, "Every enemy must own one grid slot")
+    var seen: Array[int] = []
+    seen.resize(enemy_count)
+    seen.fill(0)
+    for cell_variant in world.enemy_grid.keys():
+        var cell: Vector2i = cell_variant
+        var bucket: Array = world.enemy_grid[cell]
+        for slot in range(bucket.size()):
+            var enemy_index := int(bucket[slot])
+            assert(enemy_index >= 0 and enemy_index < enemy_count, "Grid buckets must never retain removed enemy indices")
+            assert(world.enemy_grid_cells[enemy_index] == cell, "Enemy cell metadata must match its bucket")
+            assert(world.enemy_grid_slots[enemy_index] == slot, "Enemy slot metadata must match its bucket position")
+            seen[enemy_index] += 1
+    for enemy_index in range(enemy_count):
+        assert(seen[enemy_index] == 1, "Every enemy must appear in exactly one grid bucket")
 
 
 func _test_pause_and_keyboard_selection(scene: Node, world: SimulationWorld, hud: GameHud, audio: SoundManager) -> void:
@@ -219,6 +295,14 @@ func _test_pause_and_keyboard_selection(scene: Node, world: SimulationWorld, hud
     hud._input(enter_event)
     assert(not paused, "Enter must confirm the focused upgrade and resume the scene tree")
     assert(world.player_armor > old_armor, "Enter must apply the focused last upgrade")
+
+    var performance_event := InputEventKey.new()
+    performance_event.keycode = KEY_F3
+    performance_event.pressed = true
+    scene.call("_unhandled_input", performance_event)
+    assert(hud.performance_label.visible, "F3 must expose target-machine performance diagnostics")
+    scene.call("_unhandled_input", performance_event)
+    assert(not hud.performance_label.visible, "F3 must hide the performance diagnostics on a second press")
 
 
 func _test_restart_input_and_character_reuse(scene: Node, world: SimulationWorld, hud: GameHud, audio: SoundManager) -> void:
@@ -714,6 +798,7 @@ func _test_weapon_firing_rules(world: SimulationWorld) -> void:
 
     world.enemy_positions[0] = Vector2(400.0, 0.0)
     world.enemy_positions[1] = Vector2(100.0, 0.0)
+    world._rebuild_enemy_grid()
     world.hit_targets.clear()
     world.hit_damage.clear()
     world._update_aura(GameConfig.AURA_ECHO_INTERVAL)
@@ -942,6 +1027,7 @@ func _clear_combat_state(world: SimulationWorld) -> void:
     world.enemy_boss_attack_timer.clear()
     world.enemy_boss_telegraph.clear()
     world.enemy_boss_hit_protection_timer.clear()
+    world.enemy_update_accumulators.clear()
     world.projectile_positions.clear()
     world.projectile_velocities.clear()
     world.projectile_lifetimes.clear()
@@ -969,5 +1055,11 @@ func _clear_combat_state(world: SimulationWorld) -> void:
     world.projectile_candidate_fractions.clear()
     world.hit_targets.clear()
     world.hit_damage.clear()
+    world.enemy_query_candidates.clear()
     world._release_grid_buckets()
     world.enemy_grid.clear()
+    world.enemy_grid_cells.clear()
+    world.enemy_grid_slots.clear()
+    world._release_field_grid_buckets()
+    world.field_grid.clear()
+    world.enemy_update_tick = 0

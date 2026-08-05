@@ -85,23 +85,57 @@ if not match:
 data = json.loads(match.group(1))
 if data["fps"] < 60.0:
     sys.exit("render benchmark below 60 fps: %s" % data)
-if data["draw_calls"] > 250:
-    sys.exit("render benchmark exceeded 250 draw calls: %s" % data)
+if data["draw_calls"] > 100:
+    sys.exit("render benchmark exceeded 100 draw calls: %s" % data)
 print("RENDER_BENCHMARK_OK %.1f fps at %d draw calls" % (data["fps"], data["draw_calls"]))
 '
 else
   echo "RENDER_BENCHMARK_SKIPPED xvfb-run not available"
 fi
 
-benchmark_output="$($GODOT --headless --path . -- --benchmark)"
+if command -v xvfb-run >/dev/null 2>&1; then
+  gameplay_stress_output="$(xvfb-run -a -s '-screen 0 1280x720x24' \
+    "$GODOT" --path . --audio-driver Dummy --disable-vsync \
+    --script tests/gameplay_stress_benchmark.gd 2>&1)"
+  printf '%s\n' "$gameplay_stress_output"
+  if grep -qE "SCRIPT ERROR|Assertion failed" <<<"$gameplay_stress_output"; then
+    echo "Failure in tests/gameplay_stress_benchmark.gd" >&2
+    exit 1
+  fi
+  printf '%s' "$gameplay_stress_output" | python3 -c '
+import json, re, sys
+blob = sys.stdin.read()
+match = re.search(r"GAMEPLAY_STRESS_RESULT\s+(\{.*\})", blob)
+if not match:
+    sys.exit("gameplay stress benchmark produced no result line")
+data = json.loads(match.group(1))
+if data["fps"] < 60.0:
+    sys.exit("gameplay stress benchmark below 60 fps: %s" % data)
+if data["frame_ms_p99"] > 33.4:
+    sys.exit("gameplay stress p99 frame exceeded 33.4 ms: %s" % data)
+print("GAMEPLAY_STRESS_OK %.1f fps, p99 %.2f ms" % (data["fps"], data["frame_ms_p99"]))
+'
+else
+  echo "GAMEPLAY_STRESS_SKIPPED xvfb-run not available"
+fi
+
+benchmark_output="$($GODOT --headless --path . -- --benchmark 2>&1)"
 printf '%s\n' "$benchmark_output"
+if grep -qE "SCRIPT ERROR|Assertion failed" <<<"$benchmark_output"; then
+  echo "Failure in stock gameplay benchmark" >&2
+  exit 1
+fi
 grep -q "BENCHMARK_RESULT" <<<"$benchmark_output"
 
 # The stock benchmark never fires the four newer weapons, so their cost is
 # unmeasured. This variant swaps the loadout and leaves the headline number
 # above comparable across commits.
-expanded_output="$($GODOT --headless --path . -- --benchmark-expanded)"
+expanded_output="$($GODOT --headless --path . -- --benchmark-expanded 2>&1)"
 printf '%s\n' "$expanded_output"
+if grep -qE "SCRIPT ERROR|Assertion failed" <<<"$expanded_output"; then
+  echo "Failure in expanded gameplay benchmark" >&2
+  exit 1
+fi
 grep -q "BENCHMARK_RESULT" <<<"$expanded_output"
 grep -q '"owned_weapons":\["chain","flak","orbital","detonator"\]' <<<"$expanded_output"
 

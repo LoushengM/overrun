@@ -25,6 +25,7 @@ var build_label: Label
 var surge_label: Label
 var boss_notice: Label
 var minimap: BossMinimap
+var performance_label: Label
 
 var upgrade_overlay: ColorRect
 var upgrade_title: Label
@@ -216,6 +217,43 @@ func update_stats(stats: Dictionary) -> void:
         ]
     )
     surge_label.visible = stats.get("surge", false)
+    if performance_label.visible:
+        var fps := maxi(1, int(stats.get("fps", 0)))
+        performance_label.text = (
+            "PERFORMANCE  [F3]
+"
+            + "FPS %d    FRAME %.2f ms
+" % [fps, 1000.0 / float(fps)]
+            + "PROCESS %.2f ms    PHYSICS %.2f ms
+" % [
+                stats.get("process_ms", 0.0),
+                stats.get("physics_ms", 0.0),
+            ]
+            + "DRAW %d    PRIMS %d    OBJECTS %d
+" % [
+                int(stats.get("draw_calls", 0)),
+                int(stats.get("primitives", 0)),
+                int(stats.get("render_objects", 0)),
+            ]
+            + "ENEMY %d    SHOTS %d    FIELDS %d
+" % [
+                int(stats.get("enemies", 0)),
+                int(stats.get("enemy_shots", 0)),
+                int(stats.get("fields", 0)),
+            ]
+            + "PROJECTILES %d    ORBITALS %d    BLASTS %d
+" % [
+                int(stats.get("projectiles", 0)),
+                int(stats.get("orbitals", 0)),
+                int(stats.get("blasts", 0)),
+            ]
+            + "GRID CELLS %d" % int(stats.get("grid_cells", 0))
+        )
+
+
+func toggle_performance_overlay() -> bool:
+    performance_label.visible = not performance_label.visible
+    return performance_label.visible
 
 
 func show_upgrade(
@@ -395,10 +433,21 @@ func _build_interface() -> void:
     var controls := Label.new()
     controls.position = Vector2(18.0, 675.0)
     controls.size = Vector2(620.0, 28.0)
-    controls.text = "MOVE: WASD / ARROWS     T: CLOSEST / STRONGEST TARGET     ESC: QUIT"
+    controls.text = "MOVE: WASD / ARROWS     T: TARGET MODE     F3: PERFORMANCE     ESC: QUIT"
     controls.add_theme_font_size_override("font_size", 14)
     controls.add_theme_color_override("font_color", UI_MUTED)
     root.add_child(controls)
+
+    performance_label = Label.new()
+    performance_label.position = Vector2(18.0, 468.0)
+    performance_label.size = Vector2(360.0, 190.0)
+    performance_label.add_theme_font_size_override("font_size", 14)
+    performance_label.add_theme_color_override("font_color", UI_CYAN)
+    performance_label.add_theme_constant_override("outline_size", 5)
+    performance_label.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 0.94))
+    performance_label.visible = false
+    performance_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+    root.add_child(performance_label)
 
     boss_notice = Label.new()
     boss_notice.position = Vector2(390.0, 245.0)

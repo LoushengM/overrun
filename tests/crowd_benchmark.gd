@@ -67,6 +67,7 @@ func _clear_combat_state(world: SimulationWorld) -> void:
     world.enemy_boss_attack_timer.clear()
     world.enemy_boss_telegraph.clear()
     world.enemy_boss_hit_protection_timer.clear()
+    world.enemy_update_accumulators.clear()
     world.projectile_positions.clear()
     world.projectile_velocities.clear()
     world.projectile_lifetimes.clear()
@@ -82,5 +83,9 @@ func _clear_combat_state(world: SimulationWorld) -> void:
     world.projectile_candidate_fractions.clear()
     world.hit_targets.clear()
     world.hit_damage.clear()
+    world.enemy_query_candidates.clear()
     world._release_grid_buckets()
     world.enemy_grid.clear()
+    world.enemy_grid_cells.clear()
+    world.enemy_grid_slots.clear()
+    world.enemy_update_tick = 0

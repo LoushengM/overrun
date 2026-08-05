@@ -64,6 +64,10 @@ func _unhandled_input(event: InputEvent) -> void:
             world.toggle_targeting_mode()
             audio.play_cue("target_toggle")
             get_viewport().set_input_as_handled()
+        KEY_F3:
+            hud.toggle_performance_overlay()
+            audio.play_cue("target_toggle")
+            get_viewport().set_input_as_handled()
         KEY_ESCAPE:
             get_tree().quit()
             get_viewport().set_input_as_handled()

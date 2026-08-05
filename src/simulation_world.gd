@@ -15,8 +15,15 @@ const SPRITE_FRAME_COUNT := SPRITE_ATLAS_COLUMNS * SPRITE_ATLAS_ROWS
 const PROJECTILE_ATLAS_COLUMNS := 6
 const WORLD_EFFECT_ATLAS_COLUMNS := 3
 const WORLD_EFFECT_FRAME_SIZE := 192
+const FLOOR_TEXTURE_SIZE := 768
 const BOSS_TEXTURE_SIZE := 160
 const PLAYER_TEXTURE_SIZE := 96
+const MULTIMESH_TRANSFORM_STRIDE := 8
+const MULTIMESH_CUSTOM_STRIDE := 12
+const MULTIMESH_FULL_STRIDE := 16
+const FIELD_TICK_BUDGET := 4
+const COMPACT_VISUAL_CAP := 2048
+const RENDER_UPDATE_INTERVAL := 1.0 / 60.0
 
 const COLOR_VOID := Color("071016")
 const COLOR_FLOOR := Color("101a21")
@@ -109,6 +116,7 @@ var field_radius := GameConfig.FIELD_RADIUS
 var field_duration := GameConfig.FIELD_DURATION
 var field_timer := 0.70
 var field_spawn_angle := 0.0
+var field_tick_cursor := 0
 
 var chain_cooldown := GameConfig.CHAIN_COOLDOWN
 var chain_range := GameConfig.CHAIN_RANGE
@@ -180,6 +188,7 @@ var enemy_anchors: Array[Vector2] = []
 var enemy_boss_attack_timer: Array[float] = []
 var enemy_boss_telegraph: Array[float] = []
 var enemy_boss_hit_protection_timer: Array[float] = []
+var enemy_update_accumulators: Array[float] = []
 
 var projectile_positions: Array[Vector2] = []
 var projectile_velocities: Array[Vector2] = []
@@ -202,12 +211,21 @@ var pickup_positions: Array[Vector2] = []
 var hit_targets: Array[int] = []
 var hit_damage: Array[float] = []
 var enemy_grid: Dictionary = {}
+var enemy_grid_cells: Array[Vector2i] = []
+var enemy_grid_slots: Array[int] = []
+var enemy_query_candidates: Array[int] = []
 var grid_bucket_pool: Array = []
+var field_grid: Dictionary = {}
+var field_grid_bucket_pool: Array = []
 
 var normal_enemy_multimesh: MultiMesh
 var projectile_multimesh: MultiMesh
 var world_effect_multimesh: MultiMesh
 var boss_multimesh: MultiMesh
+var normal_enemy_buffer := PackedFloat32Array()
+var projectile_buffer := PackedFloat32Array()
+var world_effect_buffer := PackedFloat32Array()
+var boss_buffer := PackedFloat32Array()
 var circle_texture: Texture2D
 var floor_texture: Texture2D
 var projectile_texture: Texture2D
@@ -225,6 +243,8 @@ var surge_time := 0.0
 var surge_cooldown := 0.0
 var next_boss_time := GameConfig.FIRST_BOSS_TIME
 var stats_timer := 0.0
+var enemy_update_tick := 0
+var render_update_accumulator := 0.0
 var benchmark_reported := false
 
 var golomb_cache: Array[int] = [0, 1]
@@ -262,6 +282,7 @@ func reset_run() -> void:
     enemy_boss_attack_timer.clear()
     enemy_boss_telegraph.clear()
     enemy_boss_hit_protection_timer.clear()
+    enemy_update_accumulators.clear()
 
     projectile_positions.clear()
     projectile_velocities.clear()
@@ -279,8 +300,13 @@ func reset_run() -> void:
     pickup_positions.clear()
     hit_targets.clear()
     hit_damage.clear()
+    enemy_query_candidates.clear()
     _release_grid_buckets()
     enemy_grid.clear()
+    enemy_grid_cells.clear()
+    enemy_grid_slots.clear()
+    _release_field_grid_buckets()
+    field_grid.clear()
 
     benchmark_mode = false
     benchmark_reported = false
@@ -347,6 +373,7 @@ func reset_run() -> void:
     field_duration = GameConfig.FIELD_DURATION
     field_timer = 0.70
     field_spawn_angle = 0.0
+    field_tick_cursor = 0
 
     chain_cooldown = GameConfig.CHAIN_COOLDOWN
     chain_range = GameConfig.CHAIN_RANGE
@@ -399,6 +426,8 @@ func reset_run() -> void:
     surge_cooldown = 0.0
     next_boss_time = GameConfig.FIRST_BOSS_TIME
     stats_timer = 0.0
+    enemy_update_tick = 0
+    render_update_accumulator = 0.0
 
     camera.position = player_position
     _update_camera_zoom()
@@ -497,6 +526,13 @@ func enable_benchmark(expanded_loadout: bool = false) -> void:
     enemy_boss_attack_timer.clear()
     enemy_boss_telegraph.clear()
     enemy_boss_hit_protection_timer.clear()
+    enemy_update_accumulators.clear()
+    enemy_query_candidates.clear()
+    _release_grid_buckets()
+    enemy_grid.clear()
+    enemy_grid_cells.clear()
+    enemy_grid_slots.clear()
+    enemy_update_tick = 0
     for i in range(1200):
         var angle := rng.randf_range(0.0, TAU)
         var distance := rng.randf_range(380.0, 1800.0)
@@ -514,9 +550,22 @@ func enable_benchmark(expanded_loadout: bool = false) -> void:
     _update_render_batches()
 
 
+func _process(delta: float) -> void:
+    if not is_running:
+        return
+    render_update_accumulator += delta
+    if render_update_accumulator < RENDER_UPDATE_INTERVAL:
+        return
+    # Upload at most once per presented frame and never faster than 60 Hz. On a
+    # struggling machine this avoids preparing 60 unseen visual states for a
+    # renderer that can only present 20-30 frames.
+    render_update_accumulator = fmod(render_update_accumulator, RENDER_UPDATE_INTERVAL)
+    _update_render_batches()
+    queue_redraw()
+
+
 func _physics_process(delta: float) -> void:
     if not is_running:
-        queue_redraw()
         return
 
     elapsed_time += delta
@@ -534,7 +583,6 @@ func _physics_process(delta: float) -> void:
         queue_redraw()
         return
 
-    _rebuild_enemy_grid()
     hit_targets.clear()
     hit_damage.clear()
     _update_weapons(delta)
@@ -554,8 +602,6 @@ func _physics_process(delta: float) -> void:
     if stats_timer >= 0.10:
         stats_timer = 0.0
         _emit_stats()
-    _update_render_batches()
-    queue_redraw()
 
 
 func _update_player(delta: float) -> void:
@@ -596,15 +642,47 @@ func _set_player_position(unwrapped_position: Vector2) -> void:
 
 func _update_enemies(delta: float) -> void:
     var touched_player := false
+    var view_scale := _camera_view_scale()
+    var near_update_radius := 950.0 * minf(sqrt(view_scale), 1.60)
+    var far_update_radius := near_update_radius * 1.65
+    var near_update_radius_squared := near_update_radius * near_update_radius
+    var far_update_radius_squared := far_update_radius * far_update_radius
+    var normal_speed_scale := _current_normal_speed_scale()
+    var boss_speed_scale := _current_boss_speed_scale()
+    var surge_ramp := 0.0
+    var surge_fade_start := 0.0
+    var surge_fade_distance := 1.0
+    if surge_active:
+        surge_ramp = minf(1.0, surge_time / GameConfig.SURGE_RAMP_TIME)
+        surge_fade_start = GameConfig.SURGE_SPEED_FADE_START * view_scale
+        var surge_full_distance := GameConfig.SURGE_SPEED_FULL_DISTANCE * view_scale
+        surge_fade_distance = maxf(1.0, surge_full_distance - surge_fade_start)
+
     for i in range(enemy_positions.size()):
         var position := enemy_positions[i]
-        var direction := Vector2.ZERO
         var to_player := WorldSpace.delta(position, player_position)
         var distance_squared_to_player := to_player.length_squared()
+        var update_stride := 1
+        if enemy_kinds[i] == EnemyKind.NORMAL and delta < 0.10:
+            if distance_squared_to_player > far_update_radius_squared:
+                update_stride = 4
+            elif distance_squared_to_player > near_update_radius_squared:
+                update_stride = 2
+
+        var first_update := enemy_update_accumulators[i] < 0.0
+        if first_update:
+            enemy_update_accumulators[i] = delta
+        else:
+            enemy_update_accumulators[i] += delta
+        if not first_update and update_stride > 1 and posmod(enemy_update_tick + i, update_stride) != 0:
+            continue
+        var step_delta := enemy_update_accumulators[i]
+        enemy_update_accumulators[i] = 0.0
         var distance_to_player := sqrt(distance_squared_to_player)
+        var direction := Vector2.ZERO
 
         if enemy_kinds[i] == EnemyKind.BOSS:
-            enemy_boss_hit_protection_timer[i] = maxf(0.0, enemy_boss_hit_protection_timer[i] - delta)
+            enemy_boss_hit_protection_timer[i] = maxf(0.0, enemy_boss_hit_protection_timer[i] - step_delta)
             var anchor := enemy_anchors[i]
             if WorldSpace.distance(player_position, anchor) > 1600.0:
                 if WorldSpace.distance(position, anchor) > 24.0:
@@ -612,18 +690,18 @@ func _update_enemies(delta: float) -> void:
             else:
                 direction = WorldSpace.direction(position, player_position)
 
-            # Phase is derived from the health fraction, so a boss escalates as
-            # it is worn down without storing any extra per-entity state.
+            # Bosses and nearby enemies always update at the full physics rate;
+            # only distant normal enemies are staggered across frames.
             var boss_phase := _boss_phase(i)
             if enemy_boss_telegraph[i] > 0.0:
                 var previous_telegraph := enemy_boss_telegraph[i]
-                enemy_boss_telegraph[i] = maxf(0.0, previous_telegraph - delta)
+                enemy_boss_telegraph[i] = maxf(0.0, previous_telegraph - step_delta)
                 if previous_telegraph > 0.0 and enemy_boss_telegraph[i] <= 0.0:
                     _request_sound("boss_slam")
                     if distance_to_player <= float(GameConfig.BOSS_PHASE_SLAM_RADIUS[boss_phase]):
                         _apply_player_damage(enemy_damage[i], true)
             elif distance_to_player <= GameConfig.BOSS_ENGAGE_RANGE:
-                enemy_boss_attack_timer[i] -= delta
+                enemy_boss_attack_timer[i] -= step_delta
                 if enemy_boss_attack_timer[i] <= 0.0:
                     enemy_boss_telegraph[i] = float(GameConfig.BOSS_PHASE_TELEGRAPH[boss_phase])
                     enemy_boss_attack_timer[i] = float(GameConfig.BOSS_PHASE_ATTACK_INTERVAL[boss_phase])
@@ -634,7 +712,7 @@ func _update_enemies(delta: float) -> void:
             if enemy_archetypes[i] == EnemyArchetype.RANGED:
                 if distance_to_player < GameConfig.ARCHETYPE_RANGED_STANDOFF:
                     direction = -direction
-                enemy_fire_timers[i] -= delta
+                enemy_fire_timers[i] -= step_delta
                 if enemy_fire_timers[i] <= 0.0:
                     enemy_fire_timers[i] = (
                         GameConfig.ARCHETYPE_RANGED_FIRE_INTERVAL
@@ -643,21 +721,34 @@ func _update_enemies(delta: float) -> void:
                     if distance_to_player <= GameConfig.ARCHETYPE_RANGED_STANDOFF * 2.0 and distance_to_player > 0.001:
                         _spawn_enemy_shot(position, to_player / distance_to_player, enemy_damage[i])
 
-        var movement_multiplier := _current_boss_speed_scale() * float(GameConfig.BOSS_PHASE_SPEED_MULTIPLIER[_boss_phase(i)]) if enemy_kinds[i] == EnemyKind.BOSS else _current_normal_speed_scale()
-        if enemy_kinds[i] == EnemyKind.NORMAL:
-            movement_multiplier *= _surge_speed_multiplier(distance_to_player)
+        var movement_multiplier := boss_speed_scale * float(GameConfig.BOSS_PHASE_SPEED_MULTIPLIER[_boss_phase(i)]) if enemy_kinds[i] == EnemyKind.BOSS else normal_speed_scale
+        if enemy_kinds[i] == EnemyKind.NORMAL and surge_active:
+            var surge_distance_factor := clampf(
+                (distance_to_player - surge_fade_start) / surge_fade_distance,
+                0.0,
+                1.0
+            )
+            movement_multiplier *= (
+                1.0
+                + (GameConfig.SURGE_MAX_SPEED_MULTIPLIER - 1.0)
+                * surge_ramp
+                * surge_distance_factor
+            )
         movement_multiplier *= _field_slow_multiplier_at(position)
-        enemy_positions[i] = WorldSpace.wrap_position(
-            position + direction * enemy_speeds[i] * movement_multiplier * delta
+        var updated_position := WorldSpace.wrap_position(
+            position + direction * enemy_speeds[i] * movement_multiplier * step_delta
         )
+        enemy_positions[i] = updated_position
+        _grid_move_enemy(i, updated_position)
 
-        if not touched_player and player_contact_cooldown <= 0.0:
+        if update_stride == 1 and not touched_player and player_contact_cooldown <= 0.0:
             var combined_radius := GameConfig.PLAYER_RADIUS + enemy_radii[i]
-            if WorldSpace.distance_squared(enemy_positions[i], player_position) <= combined_radius * combined_radius:
+            if WorldSpace.distance_squared(updated_position, player_position) <= combined_radius * combined_radius:
                 _apply_player_damage(enemy_damage[i], false)
                 touched_player = true
                 if not is_running:
                     return
+    enemy_update_tick = posmod(enemy_update_tick + 1, 1024)
 
 
 func _update_weapons(delta: float) -> void:
@@ -763,7 +854,8 @@ func _update_aura(delta: float) -> void:
 
 func _emit_aura_pulse(play_sound := true) -> void:
     var damage_instance := _scaled_weapon_damage(GameConfig.AURA_DAMAGE)
-    for enemy_index in range(enemy_positions.size()):
+    _collect_enemy_candidates(player_position, aura_radius + GameConfig.BOSS_RADIUS)
+    for enemy_index in enemy_query_candidates:
         if enemy_health[enemy_index] - enemy_reserved_damage[enemy_index] <= 0.0:
             continue
         var combined_radius := aura_radius + enemy_radii[enemy_index]
@@ -794,28 +886,51 @@ func _spawn_field() -> void:
     field_lifetimes.append(field_duration)
     field_tick_timers.append(0.0)
     field_radii.append(field_radius)
+    _rebuild_field_grid()
     _request_sound("mire_deploy")
 
 
 func _update_fields(delta: float) -> void:
+    var removed_field := false
     for field_index in range(field_positions.size() - 1, -1, -1):
         field_lifetimes[field_index] -= delta
         field_tick_timers[field_index] -= delta
         if field_lifetimes[field_index] <= 0.0:
             _remove_field(field_index)
-            continue
+            removed_field = true
+
+    if removed_field:
+        _rebuild_field_grid()
+    if field_positions.is_empty():
+        field_tick_cursor = 0
+        return
+
+    # A large field stack used to resolve every overdue pulse in the same frame,
+    # creating periodic 100+ ms physics spikes. Rotate through a bounded number
+    # of due fields each tick; the timers remain overdue until their turn, so no
+    # pulse is lost and sustained damage remains unchanged.
+    var field_count := field_positions.size()
+    field_tick_cursor = posmod(field_tick_cursor, field_count)
+    var visited := 0
+    var processed := 0
+    var damage_instance := _scaled_weapon_damage(GameConfig.FIELD_DAMAGE)
+    while visited < field_count and processed < FIELD_TICK_BUDGET:
+        var field_index := field_tick_cursor
+        field_tick_cursor = posmod(field_tick_cursor + 1, field_count)
+        visited += 1
         if field_tick_timers[field_index] > 0.0:
             continue
 
         field_tick_timers[field_index] += GameConfig.FIELD_TICK_INTERVAL
-        var damage_instance := _scaled_weapon_damage(GameConfig.FIELD_DAMAGE)
         var radius := field_radii[field_index]
-        for enemy_index in range(enemy_positions.size()):
+        _collect_enemy_candidates(field_positions[field_index], radius + GameConfig.BOSS_RADIUS)
+        for enemy_index in enemy_query_candidates:
             if enemy_health[enemy_index] - enemy_reserved_damage[enemy_index] <= 0.0:
                 continue
             var combined_radius := radius + enemy_radii[enemy_index]
             if WorldSpace.distance_squared(field_positions[field_index], enemy_positions[enemy_index]) <= combined_radius * combined_radius:
                 _queue_fixed_damage(enemy_index, damage_instance)
+        processed += 1
 
 
 # Arc Chain resolves entirely through the fixed-damage queue: one cast walks a
@@ -856,7 +971,8 @@ func _update_chain(delta: float) -> void:
 func _find_chain_jump_target(origin: Vector2) -> int:
     var best_index := -1
     var best_distance_squared := chain_jump_radius * chain_jump_radius
-    for i in range(enemy_positions.size()):
+    _collect_enemy_candidates(origin, chain_jump_radius)
+    for i in enemy_query_candidates:
         if enemy_health[i] - enemy_reserved_damage[i] <= 0.0:
             continue
         if chain_hit_scratch.has(i):
@@ -930,7 +1046,8 @@ func _update_orbitals(delta: float) -> void:
             continue
 
         var struck := false
-        for enemy_index in range(enemy_positions.size()):
+        _collect_enemy_candidates(orbital_positions[i], orbital_hit_radius + GameConfig.BOSS_RADIUS)
+        for enemy_index in enemy_query_candidates:
             if enemy_health[enemy_index] - enemy_reserved_damage[enemy_index] <= 0.0:
                 continue
             var combined_radius := orbital_hit_radius + enemy_radii[enemy_index]
@@ -991,7 +1108,8 @@ func _update_detonator_shells(delta: float) -> void:
 
 func _detonate(position: Vector2) -> void:
     var damage_instance := _scaled_weapon_damage(GameConfig.DETONATOR_DAMAGE)
-    for enemy_index in range(enemy_positions.size()):
+    _collect_enemy_candidates(position, detonator_blast_radius + GameConfig.BOSS_RADIUS)
+    for enemy_index in enemy_query_candidates:
         if enemy_health[enemy_index] - enemy_reserved_damage[enemy_index] <= 0.0:
             continue
         var combined_radius := detonator_blast_radius + enemy_radii[enemy_index]
@@ -1196,8 +1314,13 @@ func _queue_fixed_damage(enemy_index: int, raw_damage: float) -> float:
 
 
 func _field_slow_multiplier_at(position: Vector2) -> float:
-    for field_index in range(field_positions.size()):
-        if field_lifetimes[field_index] <= 0.0:
+    var bucket_value: Variant = field_grid.get(_grid_cell(position), null)
+    if bucket_value == null:
+        return 1.0
+    var bucket: Array = bucket_value
+    for field_index_variant in bucket:
+        var field_index := int(field_index_variant)
+        if field_index < 0 or field_index >= field_positions.size() or field_lifetimes[field_index] <= 0.0:
             continue
         if WorldSpace.distance_squared(position, field_positions[field_index]) <= field_radii[field_index] * field_radii[field_index]:
             return GameConfig.FIELD_SLOW_MULTIPLIER
@@ -1592,7 +1715,9 @@ func _add_enemy(
     anchor_value: Vector2,
     archetype_value: int = EnemyArchetype.GRUNT
 ) -> void:
-    enemy_positions.append(position)
+    var wrapped_position := WorldSpace.wrap_position(position)
+    var enemy_index := enemy_positions.size()
+    enemy_positions.append(wrapped_position)
     enemy_health.append(health_value)
     enemy_max_health.append(health_value)
     enemy_speeds.append(speed_value)
@@ -1609,6 +1734,8 @@ func _add_enemy(
     enemy_boss_attack_timer.append(rng.randf_range(1.5, 3.0) if kind_value == EnemyKind.BOSS else 0.0)
     enemy_boss_telegraph.append(0.0)
     enemy_boss_hit_protection_timer.append(0.0)
+    enemy_update_accumulators.append(-1.0)
+    _grid_add_enemy(enemy_index, wrapped_position)
 
 
 func _sprite_frame_for(kind_value: int, archetype_value: int) -> int:
@@ -2078,7 +2205,8 @@ func _find_target_enemy(origin: Vector2, max_range: float) -> int:
 func _find_nearest_enemy(origin: Vector2, max_range: float) -> int:
     var best_index := -1
     var best_distance_squared := max_range * max_range
-    for i in range(enemy_positions.size()):
+    _collect_enemy_candidates(origin, max_range)
+    for i in enemy_query_candidates:
         if enemy_health[i] <= 0.0:
             continue
         var distance_squared := WorldSpace.distance_squared(origin, enemy_positions[i])
@@ -2094,7 +2222,8 @@ func _find_strongest_enemy(origin: Vector2, max_range: float) -> int:
     var max_range_squared := max_range * max_range
     var best_distance_squared := max_range_squared
 
-    for i in range(enemy_positions.size()):
+    _collect_enemy_candidates(origin, max_range)
+    for i in enemy_query_candidates:
         if enemy_health[i] <= 0.0:
             continue
         var distance_squared := WorldSpace.distance_squared(origin, enemy_positions[i])
@@ -2116,8 +2245,12 @@ func _find_strongest_enemy(origin: Vector2, max_range: float) -> int:
 func _count_nearby_normals(radius: float) -> int:
     var radius_squared := radius * radius
     var count := 0
-    for i in range(enemy_positions.size()):
-        if enemy_kinds[i] == EnemyKind.NORMAL and WorldSpace.distance_squared(enemy_positions[i], player_position) <= radius_squared:
+    _collect_enemy_candidates(player_position, radius)
+    for i in enemy_query_candidates:
+        if (
+            enemy_kinds[i] == EnemyKind.NORMAL
+            and WorldSpace.distance_squared(enemy_positions[i], player_position) <= radius_squared
+        ):
             count += 1
     return count
 
@@ -2125,16 +2258,141 @@ func _count_nearby_normals(radius: float) -> int:
 func _rebuild_enemy_grid() -> void:
     _release_grid_buckets()
     enemy_grid.clear()
-    for i in range(enemy_positions.size()):
-        var cell := _grid_cell(enemy_positions[i])
-        var bucket_value: Variant = enemy_grid.get(cell, null)
-        if bucket_value == null:
-            var new_bucket: Array = grid_bucket_pool.pop_back() if not grid_bucket_pool.is_empty() else []
-            new_bucket.append(i)
-            enemy_grid[cell] = new_bucket
-        else:
+    enemy_grid_cells.clear()
+    enemy_grid_slots.clear()
+    for enemy_index in range(enemy_positions.size()):
+        _grid_add_enemy(enemy_index, enemy_positions[enemy_index])
+
+
+func _grid_add_enemy(enemy_index: int, position: Vector2) -> void:
+    var cell := _grid_cell(position)
+    var bucket_value: Variant = enemy_grid.get(cell, null)
+    var bucket: Array
+    if bucket_value == null:
+        bucket = grid_bucket_pool.pop_back() if not grid_bucket_pool.is_empty() else []
+        enemy_grid[cell] = bucket
+    else:
+        bucket = bucket_value
+    enemy_grid_cells.append(cell)
+    enemy_grid_slots.append(bucket.size())
+    bucket.append(enemy_index)
+
+
+func _grid_move_enemy(enemy_index: int, position: Vector2) -> void:
+    if enemy_index < 0 or enemy_index >= enemy_grid_cells.size():
+        return
+    var new_cell := _grid_cell(position)
+    if new_cell == enemy_grid_cells[enemy_index]:
+        return
+    _grid_remove_enemy_entry(enemy_index)
+    var bucket_value: Variant = enemy_grid.get(new_cell, null)
+    var bucket: Array
+    if bucket_value == null:
+        bucket = grid_bucket_pool.pop_back() if not grid_bucket_pool.is_empty() else []
+        enemy_grid[new_cell] = bucket
+    else:
+        bucket = bucket_value
+    enemy_grid_cells[enemy_index] = new_cell
+    enemy_grid_slots[enemy_index] = bucket.size()
+    bucket.append(enemy_index)
+
+
+func _grid_remove_enemy_entry(enemy_index: int) -> void:
+    if enemy_index < 0 or enemy_index >= enemy_grid_cells.size():
+        return
+    var cell := enemy_grid_cells[enemy_index]
+    var bucket_value: Variant = enemy_grid.get(cell, null)
+    if bucket_value == null:
+        return
+    var bucket: Array = bucket_value
+    var slot := enemy_grid_slots[enemy_index]
+    var last_slot := bucket.size() - 1
+    if slot < 0 or slot > last_slot:
+        return
+    if slot != last_slot:
+        var moved_enemy_index := int(bucket[last_slot])
+        bucket[slot] = moved_enemy_index
+        enemy_grid_slots[moved_enemy_index] = slot
+    bucket.pop_back()
+    if bucket.is_empty():
+        enemy_grid.erase(cell)
+        grid_bucket_pool.append(bucket)
+
+
+func _grid_reindex_enemy(old_index: int, new_index: int) -> void:
+    var cell := enemy_grid_cells[old_index]
+    var slot := enemy_grid_slots[old_index]
+    var bucket_value: Variant = enemy_grid.get(cell, null)
+    if bucket_value != null:
+        var bucket: Array = bucket_value
+        bucket[slot] = new_index
+    enemy_grid_cells[new_index] = cell
+    enemy_grid_slots[new_index] = slot
+
+
+func _collect_enemy_candidates(origin: Vector2, radius: float) -> void:
+    enemy_query_candidates.clear()
+    var min_cell := Vector2i(
+        floori((origin.x - radius) / GameConfig.GRID_CELL_SIZE),
+        floori((origin.y - radius) / GameConfig.GRID_CELL_SIZE)
+    )
+    var max_cell := Vector2i(
+        floori((origin.x + radius) / GameConfig.GRID_CELL_SIZE),
+        floori((origin.y + radius) / GameConfig.GRID_CELL_SIZE)
+    )
+    max_cell.x = mini(max_cell.x, min_cell.x + GameConfig.GRID_CELL_COUNT - 1)
+    max_cell.y = mini(max_cell.y, min_cell.y + GameConfig.GRID_CELL_COUNT - 1)
+    for cell_x in range(min_cell.x, max_cell.x + 1):
+        for cell_y in range(min_cell.y, max_cell.y + 1):
+            var cell := Vector2i(
+                posmod(cell_x, GameConfig.GRID_CELL_COUNT),
+                posmod(cell_y, GameConfig.GRID_CELL_COUNT)
+            )
+            var bucket_value: Variant = enemy_grid.get(cell, null)
+            if bucket_value == null:
+                continue
             var bucket: Array = bucket_value
-            bucket.append(i)
+            for enemy_index_variant in bucket:
+                enemy_query_candidates.append(int(enemy_index_variant))
+
+
+func _rebuild_field_grid() -> void:
+    _release_field_grid_buckets()
+    field_grid.clear()
+    for field_index in range(field_positions.size()):
+        if field_lifetimes[field_index] <= 0.0:
+            continue
+        var position := field_positions[field_index]
+        var radius := field_radii[field_index]
+        var min_cell := Vector2i(
+            floori((position.x - radius) / GameConfig.GRID_CELL_SIZE),
+            floori((position.y - radius) / GameConfig.GRID_CELL_SIZE)
+        )
+        var max_cell := Vector2i(
+            floori((position.x + radius) / GameConfig.GRID_CELL_SIZE),
+            floori((position.y + radius) / GameConfig.GRID_CELL_SIZE)
+        )
+        for cell_x in range(min_cell.x, max_cell.x + 1):
+            for cell_y in range(min_cell.y, max_cell.y + 1):
+                var cell := Vector2i(
+                    posmod(cell_x, GameConfig.GRID_CELL_COUNT),
+                    posmod(cell_y, GameConfig.GRID_CELL_COUNT)
+                )
+                var bucket_value: Variant = field_grid.get(cell, null)
+                var bucket: Array
+                if bucket_value == null:
+                    bucket = field_grid_bucket_pool.pop_back() if not field_grid_bucket_pool.is_empty() else []
+                    field_grid[cell] = bucket
+                else:
+                    bucket = bucket_value
+                bucket.append(field_index)
+
+
+func _release_field_grid_buckets() -> void:
+    for bucket_value in field_grid.values():
+        var bucket: Array = bucket_value
+        bucket.clear()
+        field_grid_bucket_pool.append(bucket)
 
 
 func _release_grid_buckets() -> void:
@@ -2183,6 +2441,7 @@ func _sort_projectile_candidates() -> void:
 
 func _remove_enemy(index: int) -> void:
     var last := enemy_positions.size() - 1
+    _grid_remove_enemy_entry(index)
     if index != last:
         enemy_positions[index] = enemy_positions[last]
         enemy_health[index] = enemy_health[last]
@@ -2201,6 +2460,8 @@ func _remove_enemy(index: int) -> void:
         enemy_boss_attack_timer[index] = enemy_boss_attack_timer[last]
         enemy_boss_telegraph[index] = enemy_boss_telegraph[last]
         enemy_boss_hit_protection_timer[index] = enemy_boss_hit_protection_timer[last]
+        enemy_update_accumulators[index] = enemy_update_accumulators[last]
+        _grid_reindex_enemy(last, index)
     enemy_positions.pop_back()
     enemy_health.pop_back()
     enemy_max_health.pop_back()
@@ -2218,6 +2479,9 @@ func _remove_enemy(index: int) -> void:
     enemy_boss_attack_timer.pop_back()
     enemy_boss_telegraph.pop_back()
     enemy_boss_hit_protection_timer.pop_back()
+    enemy_update_accumulators.pop_back()
+    enemy_grid_cells.pop_back()
+    enemy_grid_slots.pop_back()
 
 
 func _remove_projectile(index: int) -> void:
@@ -2327,6 +2591,15 @@ func get_stats_snapshot() -> Dictionary:
         "one_shot_protection": player_one_shot_protection_timer > 0.0,
         "surge": surge_active,
         "fps": Engine.get_frames_per_second(),
+        "process_ms": Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0,
+        "physics_ms": Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0,
+        "draw_calls": Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME),
+        "primitives": Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME),
+        "render_objects": Performance.get_monitor(Performance.RENDER_TOTAL_OBJECTS_IN_FRAME),
+        "enemy_shots": enemy_shot_positions.size(),
+        "orbitals": orbital_positions.size(),
+        "blasts": detonator_blast_positions.size(),
+        "grid_cells": enemy_grid.size(),
     }
 
 
@@ -2336,7 +2609,7 @@ func _emit_stats() -> void:
 
 func _setup_batched_rendering() -> void:
     circle_texture = _make_circle_texture(32)
-    floor_texture = _make_floor_texture(192)
+    floor_texture = _make_floor_texture(FLOOR_TEXTURE_SIZE)
     projectile_texture = _make_projectile_atlas_texture(48)
     world_effect_texture = _make_world_effect_atlas_texture(WORLD_EFFECT_FRAME_SIZE)
     boss_texture = _make_boss_texture(BOSS_TEXTURE_SIZE)
@@ -2347,28 +2620,28 @@ func _setup_batched_rendering() -> void:
 
     normal_enemy_multimesh = MultiMesh.new()
     normal_enemy_multimesh.transform_format = MultiMesh.TRANSFORM_2D
-    normal_enemy_multimesh.use_colors = true
+    normal_enemy_multimesh.use_colors = false
     normal_enemy_multimesh.use_custom_data = true
     normal_enemy_multimesh.instance_count = GameConfig.ENEMY_CAP
     normal_enemy_multimesh.visible_instance_count = 0
     var enemy_mesh := QuadMesh.new()
     enemy_mesh.size = Vector2.ONE * 48.0
     normal_enemy_multimesh.mesh = enemy_mesh
+    normal_enemy_buffer.resize(normal_enemy_multimesh.instance_count * MULTIMESH_CUSTOM_STRIDE)
 
     projectile_multimesh = MultiMesh.new()
     projectile_multimesh.transform_format = MultiMesh.TRANSFORM_2D
     projectile_multimesh.use_colors = true
     projectile_multimesh.use_custom_data = true
-    projectile_multimesh.instance_count = (
-        GameConfig.PROJECTILE_CAP
-        + GameConfig.ENEMY_SHOT_CAP
-        + GameConfig.DETONATOR_BLAST_CAP
-        + GameConfig.ORBITAL_CAP
-    )
+    # Simulation can hold far more projectiles than can fit on screen. Keep the
+    # render buffer bounded so a low-end GPU never receives a 16k-instance
+    # upload for a few hundred visible effects.
+    projectile_multimesh.instance_count = COMPACT_VISUAL_CAP
     projectile_multimesh.visible_instance_count = 0
     var projectile_mesh := QuadMesh.new()
     projectile_mesh.size = Vector2.ONE * 48.0
     projectile_multimesh.mesh = projectile_mesh
+    projectile_buffer.resize(projectile_multimesh.instance_count * MULTIMESH_FULL_STRIDE)
 
     world_effect_multimesh = MultiMesh.new()
     world_effect_multimesh.transform_format = MultiMesh.TRANSFORM_2D
@@ -2383,15 +2656,18 @@ func _setup_batched_rendering() -> void:
     var world_effect_mesh := QuadMesh.new()
     world_effect_mesh.size = Vector2.ONE * float(WORLD_EFFECT_FRAME_SIZE)
     world_effect_multimesh.mesh = world_effect_mesh
+    world_effect_buffer.resize(world_effect_multimesh.instance_count * MULTIMESH_FULL_STRIDE)
 
     boss_multimesh = MultiMesh.new()
     boss_multimesh.transform_format = MultiMesh.TRANSFORM_2D
-    boss_multimesh.use_colors = true
+    boss_multimesh.use_colors = false
+    boss_multimesh.use_custom_data = false
     boss_multimesh.instance_count = GameConfig.BOSS_CAP
     boss_multimesh.visible_instance_count = 0
     var boss_mesh := QuadMesh.new()
     boss_mesh.size = Vector2.ONE * float(BOSS_TEXTURE_SIZE)
     boss_multimesh.mesh = boss_mesh
+    boss_buffer.resize(boss_multimesh.instance_count * MULTIMESH_TRANSFORM_STRIDE)
 
 
 func _make_atlas_material() -> ShaderMaterial:
@@ -2449,7 +2725,9 @@ func _make_floor_texture(size: int) -> Texture2D:
     var image := Image.create(size, size, false, Image.FORMAT_RGBA8)
     image.fill(COLOR_FLOOR)
 
-    # Large panel seams first, then inset bevels and a sparse cyan circuit trace.
+    # Bake both the fine panels and the former per-frame structural overlay into
+    # one 768px tile. The arena now costs a single textured draw instead of
+    # dozens of lines and circles every frame.
     for coordinate in range(0, size, 48):
         _image_line(image, Vector2i(coordinate, 0), Vector2i(coordinate, size - 1), 2, Color("0b141a"))
         _image_line(image, Vector2i(0, coordinate), Vector2i(size - 1, coordinate), 2, Color("0b141a"))
@@ -2460,17 +2738,44 @@ func _make_floor_texture(size: int) -> Texture2D:
             _image_line(image, Vector2i(x + 8, y + 4), Vector2i(x + 4, y + 8), 1, Color("33434c"))
             _image_line(image, Vector2i(x + 40, y + 44), Vector2i(x + 44, y + 40), 1, Color("0b1116"))
 
-    # Hex/circuit motif. Repetition is broad enough that the floor does not read
-    # as a checkerboard when the camera zooms out.
-    for center in [Vector2i(24, 24), Vector2i(120, 72), Vector2i(72, 144), Vector2i(168, 168)]:
-        _image_hex_outline(image, center, 13, Color(0.05, 0.32, 0.38, 0.42))
-        _image_circle(image, center, 2, Color(0.10, 0.72, 0.78, 0.65))
+    var motif_centers: Array[Vector2i] = [
+        Vector2i(24, 24),
+        Vector2i(120, 72),
+        Vector2i(72, 144),
+        Vector2i(168, 168),
+    ]
+    for tile_y in range(0, size, 192):
+        for tile_x in range(0, size, 192):
+            var origin := Vector2i(tile_x, tile_y)
+            for local_center in motif_centers:
+                var center: Vector2i = origin + local_center
+                _image_hex_outline(image, center, 13, Color(0.05, 0.32, 0.38, 0.42))
+                _image_circle(image, center, 2, Color(0.10, 0.72, 0.78, 0.65))
 
-    # A small hazard panel gives the arena an industrial identity without
-    # overwhelming combat readability.
-    _image_rect(image, Rect2i(98, 6, 82, 15), Color("172129"))
-    for stripe_x in range(92, 188, 18):
-        _image_line(image, Vector2i(stripe_x, 20), Vector2i(stripe_x + 14, 6), 5, Color(0.70, 0.34, 0.08, 0.62))
+            # Sparse hazard plates break up the floor while remaining part of
+            # the same baked texture and therefore the same draw call.
+            if posmod(tile_x + tile_y, 576) == 0:
+                _image_rect(image, Rect2i(origin + Vector2i(98, 6), Vector2i(82, 15)), Color("172129"))
+                for stripe_x in range(92, 188, 18):
+                    _image_line(
+                        image,
+                        origin + Vector2i(stripe_x, 20),
+                        origin + Vector2i(stripe_x + 14, 6),
+                        5,
+                        Color(0.70, 0.34, 0.08, 0.62)
+                    )
+
+    # Wide seams and tracking nodes were previously emitted as individual
+    # CanvasItem commands. Baking them removes the low-end OpenGL driver cost.
+    _image_line(image, Vector2i(0, 0), Vector2i(0, size - 1), 5, COLOR_VOID)
+    _image_line(image, Vector2i(6, 0), Vector2i(6, size - 1), 1, Color(0.12, 0.29, 0.34, 0.40))
+    _image_line(image, Vector2i(0, 0), Vector2i(size - 1, 0), 5, COLOR_VOID)
+    _image_line(image, Vector2i(0, 6), Vector2i(size - 1, 6), 1, Color(0.12, 0.29, 0.34, 0.40))
+    for node_y in range(0, size, 384):
+        for node_x in range(0, size, 384):
+            var node := Vector2i(node_x, node_y)
+            _image_circle(image, node, 5, Color("0b151b"))
+            _image_circle(image, node, 2, Color(COLOR_CYAN, 0.42))
     return ImageTexture.create_from_image(image)
 
 
@@ -2729,6 +3034,72 @@ func _projectile_visual_scale(radius: float) -> float:
     return clampf(radius / maxf(1.0, GameConfig.NEEDLE_RADIUS), 0.65, 1.65)
 
 
+func _write_transform_buffer(
+    buffer: PackedFloat32Array,
+    base: int,
+    transform: Transform2D
+) -> void:
+    # RenderingServer's 2D transform layout is two padded column vectors:
+    # x.x, y.x, 0, origin.x, x.y, y.y, 0, origin.y.
+    buffer[base] = transform.x.x
+    buffer[base + 1] = transform.y.x
+    buffer[base + 2] = 0.0
+    buffer[base + 3] = transform.origin.x
+    buffer[base + 4] = transform.x.y
+    buffer[base + 5] = transform.y.y
+    buffer[base + 6] = 0.0
+    buffer[base + 7] = transform.origin.y
+
+
+func _write_enemy_buffer_instance(
+    instance_index: int,
+    transform: Transform2D,
+    custom_data: Color
+) -> void:
+    var base := instance_index * MULTIMESH_CUSTOM_STRIDE
+    _write_transform_buffer(normal_enemy_buffer, base, transform)
+    normal_enemy_buffer[base + 8] = custom_data.r
+    normal_enemy_buffer[base + 9] = custom_data.g
+    normal_enemy_buffer[base + 10] = custom_data.b
+    normal_enemy_buffer[base + 11] = custom_data.a
+
+
+func _write_boss_buffer_instance(instance_index: int, transform: Transform2D) -> void:
+    _write_transform_buffer(
+        boss_buffer,
+        instance_index * MULTIMESH_TRANSFORM_STRIDE,
+        transform
+    )
+
+
+func _write_full_buffer_instance(
+    buffer: PackedFloat32Array,
+    instance_index: int,
+    transform: Transform2D,
+    color: Color,
+    custom_data: Color
+) -> void:
+    var base := instance_index * MULTIMESH_FULL_STRIDE
+    _write_transform_buffer(buffer, base, transform)
+    buffer[base + 8] = color.r
+    buffer[base + 9] = color.g
+    buffer[base + 10] = color.b
+    buffer[base + 11] = color.a
+    buffer[base + 12] = custom_data.r
+    buffer[base + 13] = custom_data.g
+    buffer[base + 14] = custom_data.b
+    buffer[base + 15] = custom_data.a
+
+
+func _upload_multimesh_buffer(
+    multimesh: MultiMesh,
+    buffer: PackedFloat32Array,
+    visible_count: int
+) -> void:
+    RenderingServer.multimesh_set_buffer(multimesh.get_rid(), buffer)
+    multimesh.visible_instance_count = visible_count
+
+
 func _update_render_batches() -> void:
     if (
         normal_enemy_multimesh == null
@@ -2739,45 +3110,48 @@ func _update_render_batches() -> void:
         return
 
     var visible_half := GameConfig.VIEW_SIZE * 0.62 * _camera_view_scale()
-    var enemy_half := visible_half + Vector2(100.0, 100.0)
+    var enemy_half := visible_half + Vector2(140.0, 140.0)
     var normal_count := 0
     var boss_count := 0
     for i in range(enemy_positions.size()):
-        if not _is_near_view(enemy_positions[i], enemy_half + Vector2(40.0, 40.0)):
+        if not _is_near_view(enemy_positions[i], enemy_half):
             continue
         var rendered_position := WorldSpace.nearest_image(player_position, enemy_positions[i])
         if enemy_kinds[i] == EnemyKind.BOSS:
+            if boss_count >= boss_multimesh.instance_count:
+                continue
             var boss_scale := enemy_radii[i] / GameConfig.BOSS_RADIUS
             var boss_rotation := elapsed_time * (0.08 + 0.03 * float(_boss_phase(i)))
             var boss_transform := Transform2D(boss_rotation, rendered_position)
             boss_transform.x *= boss_scale
             boss_transform.y *= boss_scale
-            boss_multimesh.set_instance_transform_2d(boss_count, boss_transform)
-            boss_multimesh.set_instance_color(boss_count, Color.WHITE)
+            _write_boss_buffer_instance(boss_count, boss_transform)
             boss_count += 1
             continue
 
+        if normal_count >= normal_enemy_multimesh.instance_count:
+            continue
         var enemy_transform := Transform2D.IDENTITY
         var enemy_visual_scale := enemy_radii[i] / GameConfig.NORMAL_ENEMY_RADIUS
         enemy_transform.x *= enemy_visual_scale
         enemy_transform.y *= enemy_visual_scale
         enemy_transform.origin = rendered_position
-        normal_enemy_multimesh.set_instance_transform_2d(normal_count, enemy_transform)
-        normal_enemy_multimesh.set_instance_color(normal_count, Color.WHITE)
-        normal_enemy_multimesh.set_instance_custom_data(
+        _write_enemy_buffer_instance(
             normal_count,
+            enemy_transform,
             _sprite_frame_custom_data(enemy_sprite_frames[i])
         )
         normal_count += 1
-    normal_enemy_multimesh.visible_instance_count = normal_count
-    boss_multimesh.visible_instance_count = boss_count
+    _upload_multimesh_buffer(normal_enemy_multimesh, normal_enemy_buffer, normal_count)
+    _upload_multimesh_buffer(boss_multimesh, boss_buffer, boss_count)
 
-    # All compact moving visuals share one atlas and one draw call. The previous
-    # procedural path emitted up to three CanvasItem commands per enemy bolt and
-    # a dozen per orbital or shell, which is what collapsed the Windows build.
+    # All compact moving visuals share one atlas and one bulk upload. The old
+    # path crossed the script-to-engine boundary three times per instance.
     var projectile_half := visible_half + Vector2(100.0, 100.0)
     var compact_count := 0
     for projectile_index in range(projectile_positions.size()):
+        if compact_count >= projectile_multimesh.instance_count:
+            break
         var position := WorldSpace.nearest_image(player_position, projectile_positions[projectile_index])
         if not _is_near_view(position, projectile_half):
             continue
@@ -2795,45 +3169,54 @@ func _update_render_batches() -> void:
             _:
                 projectile_transform.x *= visual_scale
                 projectile_transform.y *= visual_scale * 0.58
-        projectile_multimesh.set_instance_transform_2d(compact_count, projectile_transform)
-        projectile_multimesh.set_instance_color(compact_count, Color.WHITE)
-        projectile_multimesh.set_instance_custom_data(
+        _write_full_buffer_instance(
+            projectile_buffer,
             compact_count,
+            projectile_transform,
+            Color.WHITE,
             _projectile_frame_custom_data(projectile_kind)
         )
         compact_count += 1
 
     for shot_index in range(enemy_shot_positions.size()):
+        if compact_count >= projectile_multimesh.instance_count:
+            break
         var shot_position := WorldSpace.nearest_image(player_position, enemy_shot_positions[shot_index])
         if not _is_near_view(shot_position, projectile_half):
             continue
         var shot_transform := Transform2D(enemy_shot_velocities[shot_index].angle(), shot_position)
         shot_transform.x *= 0.95
         shot_transform.y *= 0.72
-        projectile_multimesh.set_instance_transform_2d(compact_count, shot_transform)
-        projectile_multimesh.set_instance_color(compact_count, Color.WHITE)
-        projectile_multimesh.set_instance_custom_data(
+        _write_full_buffer_instance(
+            projectile_buffer,
             compact_count,
+            shot_transform,
+            Color.WHITE,
             _projectile_frame_custom_data(ProjectileVisualFrame.ENEMY_BOLT)
         )
         compact_count += 1
 
     for shell_index in range(detonator_shell_positions.size()):
+        if compact_count >= projectile_multimesh.instance_count:
+            break
         var shell_position := WorldSpace.nearest_image(player_position, detonator_shell_positions[shell_index])
         if not _is_near_view(shell_position, projectile_half):
             continue
         var shell_transform := Transform2D(detonator_shell_velocities[shell_index].angle(), shell_position)
         shell_transform.x *= 0.92
         shell_transform.y *= 0.82
-        projectile_multimesh.set_instance_transform_2d(compact_count, shell_transform)
-        projectile_multimesh.set_instance_color(compact_count, Color.WHITE)
-        projectile_multimesh.set_instance_custom_data(
+        _write_full_buffer_instance(
+            projectile_buffer,
             compact_count,
+            shell_transform,
+            Color.WHITE,
             _projectile_frame_custom_data(ProjectileVisualFrame.DETONATOR_SHELL)
         )
         compact_count += 1
 
     for orbital_index in range(orbital_positions.size()):
+        if compact_count >= projectile_multimesh.instance_count:
+            break
         var orbital_position := WorldSpace.nearest_image(player_position, orbital_positions[orbital_index])
         if not _is_near_view(orbital_position, projectile_half):
             continue
@@ -2841,20 +3224,22 @@ func _update_render_batches() -> void:
         var orbital_transform := Transform2D(elapsed_time * 4.0 + float(orbital_index), orbital_position)
         orbital_transform.x *= orbital_scale
         orbital_transform.y *= orbital_scale
-        projectile_multimesh.set_instance_transform_2d(compact_count, orbital_transform)
-        projectile_multimesh.set_instance_color(compact_count, Color.WHITE)
-        projectile_multimesh.set_instance_custom_data(
+        _write_full_buffer_instance(
+            projectile_buffer,
             compact_count,
+            orbital_transform,
+            Color.WHITE,
             _projectile_frame_custom_data(ProjectileVisualFrame.ORBITAL)
         )
         compact_count += 1
-    projectile_multimesh.visible_instance_count = compact_count
+    _upload_multimesh_buffer(projectile_multimesh, projectile_buffer, compact_count)
 
-    # Large translucent effects use a second atlas. Per-instance transform and
-    # color retain their pulse/fade animation without rebuilding geometry.
+    # Large translucent effects use a second atlas and one additional upload.
     var effect_count := 0
     var field_texture_radius := float(WORLD_EFFECT_FRAME_SIZE) * 0.45
     for field_index in range(field_positions.size()):
+        if effect_count >= world_effect_multimesh.instance_count:
+            break
         var field_position := WorldSpace.nearest_image(player_position, field_positions[field_index])
         if not _is_near_view(field_position, visible_half + Vector2(180.0, 180.0)):
             continue
@@ -2865,18 +3250,18 @@ func _update_render_batches() -> void:
         field_transform.x *= field_scale
         field_transform.y *= field_scale
         field_transform.origin = field_position
-        world_effect_multimesh.set_instance_transform_2d(effect_count, field_transform)
-        world_effect_multimesh.set_instance_color(
+        _write_full_buffer_instance(
+            world_effect_buffer,
             effect_count,
-            Color(1.0, 1.0, 1.0, 0.55 + 0.45 * life_fraction)
-        )
-        world_effect_multimesh.set_instance_custom_data(
-            effect_count,
+            field_transform,
+            Color(1.0, 1.0, 1.0, 0.55 + 0.45 * life_fraction),
             _world_effect_frame_custom_data(WorldEffectFrame.FIELD)
         )
         effect_count += 1
 
     for pickup_position_raw in pickup_positions:
+        if effect_count >= world_effect_multimesh.instance_count:
+            break
         var pickup_position := WorldSpace.nearest_image(player_position, pickup_position_raw)
         if not _is_near_view(pickup_position, visible_half):
             continue
@@ -2885,16 +3270,19 @@ func _update_render_batches() -> void:
             0.0,
             sin(elapsed_time * 4.0 + pickup_position.x * 0.017) * 3.0
         )
-        world_effect_multimesh.set_instance_transform_2d(effect_count, pickup_transform)
-        world_effect_multimesh.set_instance_color(effect_count, Color.WHITE)
-        world_effect_multimesh.set_instance_custom_data(
+        _write_full_buffer_instance(
+            world_effect_buffer,
             effect_count,
+            pickup_transform,
+            Color.WHITE,
             _world_effect_frame_custom_data(WorldEffectFrame.PICKUP)
         )
         effect_count += 1
 
     var blast_texture_radius := float(WORLD_EFFECT_FRAME_SIZE) * 0.43
     for blast_index in range(detonator_blast_positions.size()):
+        if effect_count >= world_effect_multimesh.instance_count:
+            break
         var blast_position := WorldSpace.nearest_image(player_position, detonator_blast_positions[blast_index])
         if not _is_near_view(blast_position, visible_half + Vector2(200.0, 200.0)):
             continue
@@ -2904,17 +3292,15 @@ func _update_render_batches() -> void:
         var blast_transform := Transform2D(blast_fraction * 0.6, blast_position)
         blast_transform.x *= blast_scale
         blast_transform.y *= blast_scale
-        world_effect_multimesh.set_instance_transform_2d(effect_count, blast_transform)
-        world_effect_multimesh.set_instance_color(
+        _write_full_buffer_instance(
+            world_effect_buffer,
             effect_count,
-            Color(1.0, 1.0, 1.0, clampf(1.0 - blast_fraction, 0.0, 1.0))
-        )
-        world_effect_multimesh.set_instance_custom_data(
-            effect_count,
+            blast_transform,
+            Color(1.0, 1.0, 1.0, clampf(1.0 - blast_fraction, 0.0, 1.0)),
             _world_effect_frame_custom_data(WorldEffectFrame.BLAST)
         )
         effect_count += 1
-    world_effect_multimesh.visible_instance_count = effect_count
+    _upload_multimesh_buffer(world_effect_multimesh, world_effect_buffer, effect_count)
 
 
 func _draw() -> void:
@@ -3063,33 +3449,6 @@ func _draw_background_grid() -> void:
         draw_texture_rect(floor_texture, bounds, true, Color.WHITE)
     else:
         draw_rect(bounds, COLOR_FLOOR, true)
-
-    # Structural seams sit on a wider world-space cadence than the tiled texture.
-    # This prevents the arena from reading as wallpaper and helps motion tracking.
-    var major_spacing := 768.0
-    var start_x := floorf(bounds.position.x / major_spacing) * major_spacing
-    var start_y := floorf(bounds.position.y / major_spacing) * major_spacing
-    var x := start_x
-    while x <= bounds.end.x:
-        draw_line(Vector2(x, bounds.position.y), Vector2(x, bounds.end.y), Color("071016"), 5.0)
-        draw_line(Vector2(x + 6.0, bounds.position.y), Vector2(x + 6.0, bounds.end.y), Color(0.12, 0.29, 0.34, 0.40), 1.0)
-        x += major_spacing
-    var y := start_y
-    while y <= bounds.end.y:
-        draw_line(Vector2(bounds.position.x, y), Vector2(bounds.end.x, y), Color("071016"), 5.0)
-        draw_line(Vector2(bounds.position.x, y + 6.0), Vector2(bounds.end.x, y + 6.0), Color(0.12, 0.29, 0.34, 0.40), 1.0)
-        y += major_spacing
-
-    var node_spacing := 384.0
-    var node_x := floorf(bounds.position.x / node_spacing) * node_spacing
-    while node_x <= bounds.end.x:
-        var node_y := floorf(bounds.position.y / node_spacing) * node_spacing
-        while node_y <= bounds.end.y:
-            var node := Vector2(node_x, node_y)
-            draw_circle(node, 5.0, Color("0b151b"))
-            draw_circle(node, 2.0, Color(COLOR_CYAN, 0.42))
-            node_y += node_spacing
-        node_x += node_spacing
 
 
 func _is_near_view(position: Vector2, half_extent: Vector2) -> bool:

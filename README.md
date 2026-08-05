@@ -29,6 +29,7 @@ The detailed design remains in [`docs/MVP_DESIGN.md`](docs/MVP_DESIGN.md).
 
 - Move: `WASD` or arrow keys
 - Toggle targeting between Closest and Strongest: `T`
+- Toggle the performance diagnostics panel: `F3`
 - Choose upgrades: mouse, number keys `1`–`3`, arrows plus `Enter`, or arrows plus `Space`
 - Restart after death with the same operator: `R`, `Enter`, `Space`, or the restart button
 - Choose a different operator after death: `Escape`
