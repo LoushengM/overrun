@@ -2761,12 +2761,66 @@ func _sprite_frame_custom_data(frame_index: int) -> Color:
     return _atlas_custom_data(frame_index, SPRITE_ATLAS_COLUMNS, SPRITE_ATLAS_ROWS)
 
 
+func _projectile_frame_crop(frame_index: int) -> Rect2i:
+    match frame_index:
+        ProjectileVisualFrame.NEEDLE:
+            return Rect2i(4, 15, 40, 18)
+        ProjectileVisualFrame.SNIPER:
+            return Rect2i(2, 16, 44, 16)
+        ProjectileVisualFrame.FLAK:
+            return Rect2i(8, 15, 36, 18)
+        ProjectileVisualFrame.ENEMY_BOLT:
+            return Rect2i(2, 15, 44, 18)
+        ProjectileVisualFrame.DETONATOR_SHELL:
+            return Rect2i(2, 14, 44, 20)
+        ProjectileVisualFrame.ORBITAL:
+            return Rect2i(4, 4, 40, 40)
+        _:
+            return Rect2i(0, 0, 48, 48)
+
+
 func _projectile_frame_custom_data(frame_index: int) -> Color:
-    return _atlas_custom_data(frame_index, PROJECTILE_ATLAS_COLUMNS, 1)
+    var clamped := clampi(frame_index, 0, PROJECTILE_ATLAS_COLUMNS - 1)
+    var crop := _projectile_frame_crop(clamped)
+    var atlas_width := float(48 * PROJECTILE_ATLAS_COLUMNS)
+    return Color(
+        float(clamped * 48 + crop.position.x) / atlas_width,
+        float(crop.position.y) / 48.0,
+        float(crop.size.x) / atlas_width,
+        float(crop.size.y) / 48.0
+    )
+
+
+func _projectile_frame_geometry_scale(frame_index: int) -> Vector2:
+    return Vector2(_projectile_frame_crop(frame_index).size) / 48.0
+
+
+func _world_effect_frame_crop(frame_index: int) -> Rect2i:
+    match frame_index:
+        WorldEffectFrame.FIELD:
+            return Rect2i(8, 8, 177, 177)
+        WorldEffectFrame.PICKUP:
+            return Rect2i(76, 76, 41, 49)
+        WorldEffectFrame.BLAST:
+            return Rect2i(11, 11, 171, 171)
+        _:
+            return Rect2i(0, 0, WORLD_EFFECT_FRAME_SIZE, WORLD_EFFECT_FRAME_SIZE)
 
 
 func _world_effect_frame_custom_data(frame_index: int) -> Color:
-    return _atlas_custom_data(frame_index, WORLD_EFFECT_ATLAS_COLUMNS, 1)
+    var clamped := clampi(frame_index, 0, WORLD_EFFECT_ATLAS_COLUMNS - 1)
+    var crop := _world_effect_frame_crop(clamped)
+    var atlas_width := float(WORLD_EFFECT_FRAME_SIZE * WORLD_EFFECT_ATLAS_COLUMNS)
+    return Color(
+        float(clamped * WORLD_EFFECT_FRAME_SIZE + crop.position.x) / atlas_width,
+        float(crop.position.y) / float(WORLD_EFFECT_FRAME_SIZE),
+        float(crop.size.x) / atlas_width,
+        float(crop.size.y) / float(WORLD_EFFECT_FRAME_SIZE)
+    )
+
+
+func _world_effect_frame_geometry_scale(frame_index: int) -> Vector2:
+    return Vector2(_world_effect_frame_crop(frame_index).size) / float(WORLD_EFFECT_FRAME_SIZE)
 
 
 func _make_circle_texture(size: int) -> Texture2D:
@@ -2908,9 +2962,12 @@ func _make_world_effect_atlas_texture(frame_size: int) -> Texture2D:
     var center := Vector2i(int(float(frame_size) * 0.5), int(float(frame_size) * 0.5))
 
     # Mire field: translucent zone, concentric circuitry, and a compact emitter.
+    # The interior is a 25% holographic stipple rather than one solid alpha disk.
+    # It preserves the average tint while reducing nonzero-alpha fill coverage
+    # by roughly 75%, which gives weak renderers substantially less blending.
     var field_origin := Vector2i.ZERO
     var field_radius_pixels := int(float(frame_size) * 0.45)
-    _image_circle_local(image, field_origin, center, field_radius_pixels, Color(COLOR_TEAL, 0.055))
+    _image_dithered_circle_local(image, field_origin, center, field_radius_pixels, Color(COLOR_TEAL, 0.20))
     _image_circle_outline(image, field_origin + center, field_radius_pixels, 3, Color(COLOR_TEAL, 0.48))
     _image_circle_outline(image, field_origin + center, int(float(field_radius_pixels) * 0.72), 2, Color(COLOR_CYAN, 0.25))
     _image_hex_outline(image, field_origin + center, 18, Color(COLOR_STEEL_LIT, 0.78))
@@ -3068,6 +3125,27 @@ func _image_circle_outline(image: Image, center: Vector2i, radius: int, width: i
 
 func _image_circle_local(image: Image, origin: Vector2i, center: Vector2i, radius: int, color: Color) -> void:
     _image_circle(image, origin + center, radius, color)
+
+
+func _image_dithered_circle_local(
+    image: Image,
+    origin: Vector2i,
+    center: Vector2i,
+    radius: int,
+    color: Color
+) -> void:
+    var absolute_center := origin + center
+    var radius_squared := radius * radius
+    for y in range(absolute_center.y - radius, absolute_center.y + radius + 1):
+        for x in range(absolute_center.x - radius, absolute_center.x + radius + 1):
+            if x < 0 or y < 0 or x >= image.get_width() or y >= image.get_height():
+                continue
+            if (x & 1) != 0 or (y & 1) != 0:
+                continue
+            var dx := x - absolute_center.x
+            var dy := y - absolute_center.y
+            if dx * dx + dy * dy <= radius_squared:
+                image.set_pixel(x, y, color)
 
 
 func _image_line(image: Image, start: Vector2i, finish: Vector2i, width: int, color: Color) -> void:
@@ -3233,6 +3311,9 @@ func _update_render_batches() -> void:
             _:
                 projectile_transform.x *= visual_scale
                 projectile_transform.y *= visual_scale * 0.58
+        var projectile_crop_scale := _projectile_frame_geometry_scale(projectile_kind)
+        projectile_transform.x *= projectile_crop_scale.x
+        projectile_transform.y *= projectile_crop_scale.y
         _write_full_buffer_instance(
             projectile_buffer,
             compact_count,
@@ -3249,8 +3330,9 @@ func _update_render_batches() -> void:
         if not _is_near_view(shot_position, projectile_half):
             continue
         var shot_transform := Transform2D(enemy_shot_velocities[shot_index].angle(), shot_position)
-        shot_transform.x *= 0.95
-        shot_transform.y *= 0.72
+        var shot_crop_scale := _projectile_frame_geometry_scale(ProjectileVisualFrame.ENEMY_BOLT)
+        shot_transform.x *= 0.95 * shot_crop_scale.x
+        shot_transform.y *= 0.72 * shot_crop_scale.y
         _write_full_buffer_instance(
             projectile_buffer,
             compact_count,
@@ -3267,8 +3349,9 @@ func _update_render_batches() -> void:
         if not _is_near_view(shell_position, projectile_half):
             continue
         var shell_transform := Transform2D(detonator_shell_velocities[shell_index].angle(), shell_position)
-        shell_transform.x *= 0.92
-        shell_transform.y *= 0.82
+        var shell_crop_scale := _projectile_frame_geometry_scale(ProjectileVisualFrame.DETONATOR_SHELL)
+        shell_transform.x *= 0.92 * shell_crop_scale.x
+        shell_transform.y *= 0.82 * shell_crop_scale.y
         _write_full_buffer_instance(
             projectile_buffer,
             compact_count,
@@ -3285,9 +3368,10 @@ func _update_render_batches() -> void:
         if not _is_near_view(orbital_position, projectile_half):
             continue
         var orbital_scale := clampf((orbital_hit_radius + 8.0) / 24.0, 0.72, 1.8)
+        var orbital_crop_scale := _projectile_frame_geometry_scale(ProjectileVisualFrame.ORBITAL)
         var orbital_transform := Transform2D(elapsed_time * 4.0 + float(orbital_index), orbital_position)
-        orbital_transform.x *= orbital_scale
-        orbital_transform.y *= orbital_scale
+        orbital_transform.x *= orbital_scale * orbital_crop_scale.x
+        orbital_transform.y *= orbital_scale * orbital_crop_scale.y
         _write_full_buffer_instance(
             projectile_buffer,
             compact_count,
@@ -3299,7 +3383,13 @@ func _update_render_batches() -> void:
     _upload_multimesh_buffer(projectile_multimesh, projectile_buffer, compact_count)
 
     # Large translucent effects use a second atlas and one additional upload.
+    # Each frame samples only its tight nontransparent crop and scales the shared
+    # quad to that crop. This keeps the same on-screen art while avoiding raster
+    # work over the atlas frame's transparent padding—especially for pickups.
     var effect_count := 0
+    var field_crop_scale := _world_effect_frame_geometry_scale(WorldEffectFrame.FIELD)
+    var pickup_crop_scale := _world_effect_frame_geometry_scale(WorldEffectFrame.PICKUP)
+    var blast_crop_scale := _world_effect_frame_geometry_scale(WorldEffectFrame.BLAST)
     var field_texture_radius := float(WORLD_EFFECT_FRAME_SIZE) * 0.45
     for field_index in range(field_positions.size()):
         if effect_count >= world_effect_multimesh.instance_count:
@@ -3311,8 +3401,8 @@ func _update_render_batches() -> void:
         var pulse := 0.985 + 0.015 * sin(elapsed_time * 6.0 + field_position.x * 0.01)
         var field_scale := field_radii[field_index] / field_texture_radius * pulse
         var field_transform := Transform2D.IDENTITY
-        field_transform.x *= field_scale
-        field_transform.y *= field_scale
+        field_transform.x *= field_scale * field_crop_scale.x
+        field_transform.y *= field_scale * field_crop_scale.y
         field_transform.origin = field_position
         _write_full_buffer_instance(
             world_effect_buffer,
@@ -3330,6 +3420,8 @@ func _update_render_batches() -> void:
         if not _is_near_view(pickup_position, visible_half):
             continue
         var pickup_transform := Transform2D.IDENTITY
+        pickup_transform.x *= pickup_crop_scale.x
+        pickup_transform.y *= pickup_crop_scale.y
         pickup_transform.origin = pickup_position + Vector2(
             0.0,
             sin(elapsed_time * 4.0 + pickup_position.x * 0.017) * 3.0
@@ -3354,8 +3446,8 @@ func _update_render_batches() -> void:
         var blast_radius := detonator_blast_radii[blast_index] * clampf(0.45 + 0.55 * blast_fraction, 0.0, 1.0)
         var blast_scale := blast_radius / blast_texture_radius
         var blast_transform := Transform2D(blast_fraction * 0.6, blast_position)
-        blast_transform.x *= blast_scale
-        blast_transform.y *= blast_scale
+        blast_transform.x *= blast_scale * blast_crop_scale.x
+        blast_transform.y *= blast_scale * blast_crop_scale.y
         _write_full_buffer_instance(
             world_effect_buffer,
             effect_count,
