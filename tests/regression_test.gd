@@ -873,6 +873,14 @@ func _test_weapon_slots_and_boss_rewards(scene: Node, world: SimulationWorld, hu
     assert(not world._roll_weapon_upgrade_options().has("needle_pierce"), "Capped Needle pierce must disappear from boss rewards")
     world.weapon_upgrade_levels["needle_pierce"] = 0
 
+    assert(GameConfig.WEAPON_UPGRADE_CAPS["sniper_pierce"] == 4, "Longshot pierce must cap at four upgrade ranks")
+    world.owned_weapons.assign(["needle", "sniper"])
+    world.weapon_upgrade_levels["sniper_pierce"] = GameConfig.WEAPON_UPGRADE_CAPS["sniper_pierce"]
+    assert(not world._is_upgrade_eligible("sniper_pierce"), "Longshot pierce must leave reward pools after rank four")
+    assert(not world._roll_weapon_upgrade_options().has("sniper_pierce"), "Capped Longshot pierce must disappear from boss rewards")
+    world.weapon_upgrade_levels["sniper_pierce"] = 0
+    world.owned_weapons.assign(["needle"])
+
     world.player_invulnerability_timer = 0.0
     world._check_boss_reward()
     assert(paused, "A boss reward must pause the run")
