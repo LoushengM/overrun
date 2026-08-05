@@ -18,8 +18,10 @@ func _run() -> void:
     world.player_position = Vector2.ZERO
     world.needle_timer = 9999.0
 
-    var columns := 32
-    var rows := 25
+    # 1200 enemies is the stated performance promise, so the grid has to match
+    # it -- 32x25 only ever exercised 800.
+    var columns := 40
+    var rows := 30
     var spacing := Vector2(38.0, 27.0)
     var origin := Vector2(-float(columns - 1) * spacing.x * 0.5, -float(rows - 1) * spacing.y * 0.5)
     for row in range(rows):

@@ -38,6 +38,31 @@ run_script() {
 run_script tests/formula_test.gd
 run_script tests/regression_test.gd
 
+# The roster overlay check and the 1200-enemy crowd benchmark both lived in the
+# repo without ever being gated on, so a character stat regression or an FPS
+# collapse could land green. Each prints a terminal marker; grep for it so a
+# silent early quit cannot pass either.
+character_output="$(run_script tests/character_check.gd)"
+printf '%s\n' "$character_output"
+grep -q "CHARACTER_CHECK_OK" <<<"$character_output"
+
+crowd_output="$(run_script tests/crowd_benchmark.gd)"
+printf '%s\n' "$crowd_output"
+grep -q "CROWD_BENCHMARK_RESULT" <<<"$crowd_output"
+# The headline performance promise is 1200 enemies at >= 60 fps. Assert it here
+# rather than eyeballing the JSON.
+printf '%s' "$crowd_output" | python3 -c '
+import json, re, sys
+blob = sys.stdin.read()
+match = re.search(r"CROWD_BENCHMARK_RESULT\s+(\{.*\})", blob)
+if not match:
+    sys.exit("crowd benchmark produced no result line")
+data = json.loads(match.group(1))
+if data["fps"] < 60.0:
+    sys.exit("crowd benchmark below 60 fps: %s" % data)
+print("CROWD_BENCHMARK_OK %s enemies at %s fps" % (data["enemies"], data["fps"]))
+'
+
 benchmark_output="$($GODOT --headless --path . -- --benchmark)"
 printf '%s\n' "$benchmark_output"
 grep -q "BENCHMARK_RESULT" <<<"$benchmark_output"
