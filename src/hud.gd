@@ -2,6 +2,7 @@ class_name GameHud
 extends CanvasLayer
 
 signal upgrade_selected(upgrade_id: String)
+signal character_selected(character_id: String)
 signal restart_requested
 
 var root: Control
@@ -19,6 +20,8 @@ var upgrade_subtitle: Label
 var upgrade_buttons: Array[Button] = []
 var death_overlay: ColorRect
 var death_summary: Label
+var character_overlay: ColorRect
+var character_buttons: Array[Button] = []
 var boss_notice_time := 0.0
 
 
@@ -38,22 +41,45 @@ func _process(delta: float) -> void:
 
 
 func _input(event: InputEvent) -> void:
-    if not upgrade_overlay.visible or not event is InputEventKey:
+    if not event is InputEventKey:
         return
     var key_event := event as InputEventKey
     if not key_event.pressed or key_event.echo:
         return
-    var option_index := -1
-    match key_event.keycode:
+
+    # The upgrade overlay is checked first because it is the modal that opens on
+    # top of everything else; the select screen only owns input when no upgrade
+    # choice is pending.
+    if upgrade_overlay.visible:
+        var option_index := _digit_index(key_event.keycode)
+        if option_index >= 0 and option_index < upgrade_buttons.size() and upgrade_buttons[option_index].visible:
+            _on_upgrade_button_pressed(upgrade_buttons[option_index])
+            get_viewport().set_input_as_handled()
+        return
+
+    if character_overlay.visible:
+        var character_index := _digit_index(key_event.keycode)
+        if character_index >= 0 and character_index < character_buttons.size():
+            _on_character_button_pressed(character_buttons[character_index])
+            get_viewport().set_input_as_handled()
+
+
+func _digit_index(keycode: int) -> int:
+    match keycode:
         KEY_1, KEY_KP_1:
-            option_index = 0
+            return 0
         KEY_2, KEY_KP_2:
-            option_index = 1
+            return 1
         KEY_3, KEY_KP_3:
-            option_index = 2
-    if option_index >= 0 and option_index < upgrade_buttons.size() and upgrade_buttons[option_index].visible:
-        _on_upgrade_button_pressed(upgrade_buttons[option_index])
-        get_viewport().set_input_as_handled()
+            return 2
+        KEY_4, KEY_KP_4:
+            return 3
+        KEY_5, KEY_KP_5:
+            return 4
+        KEY_6, KEY_KP_6:
+            return 5
+        _:
+            return -1
 
 
 func set_world(world: SimulationWorld) -> void:
@@ -145,9 +171,25 @@ func show_death(summary: Dictionary) -> void:
     death_overlay.visible = true
 
 
+func show_character_select(current_character_id: String = "") -> void:
+    for button in character_buttons:
+        var character_id: String = button.get_meta("character_id", "")
+        var is_current := character_id == current_character_id
+        button.add_theme_color_override(
+            "font_color",
+            Color(0.48, 0.92, 1.0) if is_current else Color(0.88, 0.93, 1.0)
+        )
+    character_overlay.visible = true
+
+
+func hide_character_select() -> void:
+    character_overlay.visible = false
+
+
 func reset_display() -> void:
     upgrade_overlay.visible = false
     death_overlay.visible = false
+    character_overlay.visible = false
     boss_notice.visible = false
     boss_notice_time = 0.0
 
@@ -164,6 +206,13 @@ func _on_upgrade_button_pressed(button: Button) -> void:
     if upgrade_id.is_empty():
         return
     upgrade_selected.emit(upgrade_id)
+
+
+func _on_character_button_pressed(button: Button) -> void:
+    var character_id: String = button.get_meta("character_id", "")
+    if character_id.is_empty():
+        return
+    character_selected.emit(character_id)
 
 
 func _on_restart_pressed() -> void:
@@ -256,6 +305,7 @@ func _build_interface() -> void:
 
     _build_upgrade_overlay()
     _build_death_overlay()
+    _build_character_overlay()
 
 
 func _build_upgrade_overlay() -> void:
@@ -301,6 +351,68 @@ func _build_upgrade_overlay() -> void:
         button.pressed.connect(_on_upgrade_button_pressed.bind(button))
         layout.add_child(button)
         upgrade_buttons.append(button)
+
+
+func _build_character_overlay() -> void:
+    character_overlay = ColorRect.new()
+    character_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+    character_overlay.color = Color(0.0, 0.0, 0.0, 0.86)
+    character_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+    character_overlay.visible = false
+    root.add_child(character_overlay)
+
+    var panel := PanelContainer.new()
+    panel.anchor_left = 0.5
+    panel.anchor_top = 0.5
+    panel.anchor_right = 0.5
+    panel.anchor_bottom = 0.5
+    panel.offset_left = -430.0
+    panel.offset_top = -320.0
+    panel.offset_right = 430.0
+    panel.offset_bottom = 320.0
+    character_overlay.add_child(panel)
+
+    var layout := VBoxContainer.new()
+    layout.add_theme_constant_override("separation", 8)
+    panel.add_child(layout)
+
+    var title := Label.new()
+    title.text = "SELECT OPERATOR"
+    title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+    title.add_theme_font_size_override("font_size", 32)
+    title.add_theme_color_override("font_color", Color(0.48, 0.92, 1.0))
+    layout.add_child(title)
+
+    var subtitle := Label.new()
+    subtitle.text = "Click an operator or press its number"
+    subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+    subtitle.add_theme_font_size_override("font_size", 16)
+    layout.add_child(subtitle)
+
+    for i in range(GameConfig.CHARACTER_IDS.size()):
+        var character_id: String = GameConfig.CHARACTER_IDS[i]
+        var data: Dictionary = GameConfig.CHARACTERS.get(character_id, {})
+        var button := Button.new()
+        button.custom_minimum_size = Vector2(820.0, 72.0)
+        button.add_theme_font_size_override("font_size", 17)
+        button.set_meta("character_id", character_id)
+        var starting_weapon := str(data.get("weapon", ""))
+        var loadout := "Needle"
+        if not starting_weapon.is_empty():
+            loadout += " + " + str(GameConfig.WEAPON_NAMES.get(starting_weapon, starting_weapon))
+        button.text = "[%d]  %s — %s\n%s   |   HP x%.2f  SPD x%.2f  DMG x%.2f   |   %s" % [
+            i + 1,
+            str(data.get("name", character_id)),
+            str(data.get("passive", "")),
+            str(data.get("blurb", "")),
+            float(data.get("health", 1.0)),
+            float(data.get("speed", 1.0)),
+            float(data.get("damage", 1.0)),
+            loadout,
+        ]
+        button.pressed.connect(_on_character_button_pressed.bind(button))
+        layout.add_child(button)
+        character_buttons.append(button)
 
 
 func _build_death_overlay() -> void:

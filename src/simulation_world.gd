@@ -49,6 +49,12 @@ var player_contact_cooldown := 0.0
 var player_invulnerability_timer := 0.0
 var player_one_shot_protection_timer := 0.0
 
+# Chosen on the select screen before a run starts. reset_run applies it after the
+# baselines are written, so character multipliers always overwrite defaults
+# rather than the other way around.
+var selected_character := GameConfig.DEFAULT_CHARACTER_ID
+var character_xp_gain := 1.0
+
 # `weapon_damage` is the uncapped global damage stat expressed in Needle base
 # damage units. Every weapon scales by weapon_damage / NEEDLE_DAMAGE.
 var weapon_damage := GameConfig.WEAPON_DAMAGE
@@ -270,6 +276,8 @@ func reset_run() -> void:
     field_spawn_angle = 0.0
     next_attack_id = 1
 
+    _apply_character()
+
     spawn_accumulator = 0.0
     nearby_threat = 0
     threat_check_timer = 0.0
@@ -287,6 +295,39 @@ func reset_run() -> void:
     _emit_stats()
     _update_render_batches()
     queue_redraw()
+
+
+# Overlays the selected operator on top of the baselines written by reset_run.
+# Everything is read from GameConfig.CHARACTERS, so adding an operator requires
+# no change in this file.
+func _apply_character() -> void:
+    character_xp_gain = 1.0
+    var data: Dictionary = GameConfig.CHARACTERS.get(selected_character, {})
+    if data.is_empty():
+        return
+
+    player_max_health = GameConfig.PLAYER_MAX_HEALTH * float(data.get("health", 1.0))
+    player_health = player_max_health
+    player_move_speed = GameConfig.PLAYER_MOVE_SPEED * float(data.get("speed", 1.0))
+    player_armor = GameConfig.PLAYER_ARMOR + float(data.get("armor_bonus", 0.0))
+    player_regen_rate = GameConfig.PLAYER_REGEN_RATE * float(data.get("regen", 1.0))
+    player_pickup_radius = GameConfig.PLAYER_PICKUP_RADIUS * float(data.get("pickup_radius", 1.0))
+    weapon_damage = GameConfig.NEEDLE_DAMAGE * float(data.get("damage", 1.0))
+    character_xp_gain = float(data.get("xp_gain", 1.0))
+
+    sniper_pierce += int(data.get("sniper_pierce_bonus", 0))
+    field_duration *= float(data.get("field_duration_scale", 1.0))
+
+    var starting_weapon := str(data.get("weapon", ""))
+    if not starting_weapon.is_empty() and not owned_weapons.has(starting_weapon):
+        owned_weapons.append(starting_weapon)
+
+    _update_camera_zoom()
+
+
+func select_character(character_id: String) -> void:
+    if GameConfig.CHARACTERS.has(character_id):
+        selected_character = character_id
 
 
 func enable_benchmark() -> void:
@@ -815,7 +856,7 @@ func _process_deaths() -> void:
             continue
 
         kills += 1
-        xp += maxi(1, int(round(float(enemy_xp[i]) * GameConfig.GAME_PACE_MULTIPLIER)))
+        xp += maxi(1, int(round(float(enemy_xp[i]) * GameConfig.GAME_PACE_MULTIPLIER * character_xp_gain)))
         if enemy_kinds[i] == EnemyKind.BOSS:
             pending_boss_rewards += 1
             boss_defeated = true
@@ -1804,6 +1845,8 @@ func get_stats_snapshot() -> Dictionary:
         "weapon_slots": owned_weapons.size(),
         "weapon_slot_cap": GameConfig.WEAPON_SLOT_CAP,
         "targeting_mode": get_targeting_mode_name(),
+        "character": selected_character,
+        "character_name": GameConfig.CHARACTERS.get(selected_character, {}).get("name", selected_character),
         "cooldown": weapon_cooldown,
         "projectile_count": weapon_projectile_count,
         "pierce": weapon_pierce,

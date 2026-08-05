@@ -17,6 +17,97 @@ const PLAYER_ONE_SHOT_PROTECTION_THRESHOLD := 0.50
 const PLAYER_ONE_SHOT_PROTECTION_HEALTH := 1.0
 const PLAYER_ONE_SHOT_PROTECTION_VISUAL_DURATION := 0.80
 
+# Playable roster. Every operator keeps the Needle as its permanent base weapon;
+# a non-empty `weapon` is an extra weapon the operator starts with, and it
+# consumes one of the four weapon slots. Stat entries are multipliers on the
+# PLAYER_* baselines so tuning stays in one place. `armor_bonus` is flat because
+# armor already has its own diminishing-returns curve. Passives are data keys
+# read by _apply_character, so a new operator needs no simulation changes.
+const DEFAULT_CHARACTER_ID := "runner"
+const CHARACTER_IDS := ["runner", "bulwark", "scout", "gunner", "warden", "reaper"]
+const CHARACTERS := {
+    "runner": {
+        "name": "Runner",
+        "weapon": "",
+        "health": 1.00,
+        "speed": 1.00,
+        "damage": 1.00,
+        "regen": 1.00,
+        "armor_bonus": 0.0,
+        "pickup_radius": 1.25,
+        "xp_gain": 1.00,
+        "passive": "Salvager - 25% wider pickup reach",
+        "blurb": "Balanced baseline with a free weapon slot.",
+    },
+    "bulwark": {
+        "name": "Bulwark",
+        "weapon": "aura",
+        "health": 1.60,
+        "speed": 0.85,
+        "damage": 1.00,
+        "regen": 1.00,
+        "armor_bonus": 25.0,
+        "pickup_radius": 1.00,
+        "xp_gain": 1.00,
+        "passive": "Bastion - opens with 25 armor",
+        "blurb": "Slow, heavily plated, fights at melee range.",
+    },
+    "scout": {
+        "name": "Scout",
+        "weapon": "",
+        "health": 0.75,
+        "speed": 1.25,
+        "damage": 1.00,
+        "regen": 1.00,
+        "armor_bonus": 0.0,
+        "pickup_radius": 1.10,
+        "xp_gain": 1.15,
+        "passive": "Fast Learner - 15% more XP",
+        "blurb": "Fragile and quick; levels fastest.",
+    },
+    "gunner": {
+        "name": "Gunner",
+        "weapon": "sniper",
+        "health": 0.90,
+        "speed": 0.95,
+        "damage": 1.00,
+        "regen": 1.00,
+        "armor_bonus": 0.0,
+        "pickup_radius": 1.00,
+        "xp_gain": 1.00,
+        "sniper_pierce_bonus": 1,
+        "passive": "Penetrator - Longshot +1 pierce",
+        "blurb": "Opens with the Longshot already equipped.",
+    },
+    "warden": {
+        "name": "Warden",
+        "weapon": "field",
+        "health": 1.20,
+        "speed": 0.95,
+        "damage": 1.00,
+        "regen": 1.00,
+        "armor_bonus": 0.0,
+        "pickup_radius": 1.00,
+        "xp_gain": 1.00,
+        "field_duration_scale": 1.25,
+        "passive": "Lingering Mire - fields last 25% longer",
+        "blurb": "Area denial from the first second.",
+    },
+    "reaper": {
+        "name": "Reaper",
+        "weapon": "",
+        "health": 0.70,
+        "speed": 1.05,
+        "damage": 1.30,
+        "regen": 0.00,
+        "armor_bonus": 0.0,
+        "pickup_radius": 1.00,
+        "xp_gain": 1.00,
+        "passive": "No Recovery - +30% damage, never regenerates",
+        "blurb": "Highest opening damage. One mistake kills.",
+    },
+}
+
 const WEAPON_SLOT_CAP := 4
 const WEAPON_IDS := ["needle", "sniper", "aura", "field"]
 const WEAPON_NAMES := {

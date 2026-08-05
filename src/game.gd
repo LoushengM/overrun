@@ -17,6 +17,7 @@ func _ready() -> void:
     world.boss_spawned.connect(hud.show_boss_notice)
     world.sound_requested.connect(audio.play_cue)
     hud.upgrade_selected.connect(_on_upgrade_selected)
+    hud.character_selected.connect(_on_character_selected)
     hud.restart_requested.connect(_restart_run)
     hud.set_world(world)
 
@@ -28,6 +29,23 @@ func _ready() -> void:
     hud.reset_display()
     if benchmark_mode:
         world.enable_benchmark()
+    else:
+        _open_character_select()
+
+
+# The select screen pauses the tree, which halts the world (PROCESS_MODE_PAUSABLE)
+# while leaving this node and the HUD running to take the choice.
+func _open_character_select() -> void:
+    get_tree().paused = true
+    hud.show_character_select(world.selected_character)
+
+
+func _on_character_selected(character_id: String) -> void:
+    audio.play_cue("upgrade_select")
+    world.select_character(character_id)
+    world.reset_run()
+    hud.reset_display()
+    get_tree().paused = false
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -98,3 +116,5 @@ func _restart_run() -> void:
     world.reset_run()
     if benchmark_mode:
         world.enable_benchmark()
+    else:
+        _open_character_select()
