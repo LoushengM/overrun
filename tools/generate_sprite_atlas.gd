@@ -1,182 +1,261 @@
 extends SceneTree
 
-# Regenerates assets/robots.png, the enemy sprite atlas.
+# Regenerates assets/robots.png, the batched normal-enemy atlas.
 #
 # Run with:
 #   .tools/godot/Godot_v4.7.1-stable_linux.x86_64 --headless --path . \
 #       --script tools/generate_sprite_atlas.gd
 #
-# The atlas is committed, so this only runs when a frame changes. Frames are
-# laid out left-to-right, top-to-bottom: frame N sits at column N % COLUMNS,
-# row N / COLUMNS. GameConfig mirrors these dimensions -- keep them in sync or
-# the UV rects will sample the wrong cell.
+# The art is intentionally compact, high-contrast pixel work. Normal enemies can
+# number in the thousands, so one atlas plus one MultiMesh stays far cheaper than
+# a node or animated sprite per unit.
 
-const FRAME_SIZE := 32
+const FRAME_SIZE := 48
 const COLUMNS := 4
 const ROWS := 2
 const FRAME_COUNT := COLUMNS * ROWS
 
-const OUTLINE := Color(0.07, 0.08, 0.11, 1.0)
-const SHELL := Color(0.58, 0.63, 0.72, 1.0)
-const SHELL_LIT := Color(0.83, 0.87, 0.94, 1.0)
-const SHELL_DARK := Color(0.34, 0.37, 0.45, 1.0)
-const VISOR := Color(0.97, 0.25, 0.29, 1.0)
-const VISOR_LIT := Color(1.0, 0.66, 0.42, 1.0)
+const TRANSPARENT := Color(0.0, 0.0, 0.0, 0.0)
+const OUTLINE := Color("101820")
+const JOINT := Color("26343f")
+const SHELL_DARK := Color("3d4a55")
+const SHELL := Color("788690")
+const SHELL_LIT := Color("c5d0d6")
+const WHITE_EDGE := Color("eef7fa")
+const OPTIC := Color("ff5a38")
+const OPTIC_LIT := Color("ffb143")
+const CYAN := Color("15d6ed")
+const HAZARD := Color("f3922b")
 
 
 func _init() -> void:
-	var image := Image.create(FRAME_SIZE * COLUMNS, FRAME_SIZE * ROWS, false, Image.FORMAT_RGBA8)
-	image.fill(Color(0.0, 0.0, 0.0, 0.0))
+    var image := Image.create(FRAME_SIZE * COLUMNS, FRAME_SIZE * ROWS, false, Image.FORMAT_RGBA8)
+    image.fill(TRANSPARENT)
 
-	for frame_index in range(FRAME_COUNT):
-		@warning_ignore("integer_division")
-		var row := frame_index / COLUMNS
-		var origin := Vector2i((frame_index % COLUMNS) * FRAME_SIZE, row * FRAME_SIZE)
-		for part in _frame_parts(frame_index):
-			_fill(image, origin, part[0], part[1])
-		_outline_frame(image, origin)
+    for frame_index in range(FRAME_COUNT):
+        @warning_ignore("integer_division")
+        var row := frame_index / COLUMNS
+        var origin := Vector2i((frame_index % COLUMNS) * FRAME_SIZE, row * FRAME_SIZE)
+        _draw_frame(image, origin, frame_index)
+        _outline_frame(image, origin)
 
-	var path := ProjectSettings.globalize_path("res://assets/robots.png")
-	var error := image.save_png(path)
-	if error != OK:
-		push_error("Could not write %s (error %d)" % [path, error])
-		print("SPRITE_ATLAS_FAILED")
-		quit(1)
-		return
-	print("SPRITE_ATLAS_OK ", JSON.stringify({
-		"path": "res://assets/robots.png",
-		"size": [image.get_width(), image.get_height()],
-		"frames": FRAME_COUNT,
-	}))
-	quit()
-
-
-func _fill(image: Image, origin: Vector2i, rect: Rect2i, color: Color) -> void:
-	for y in range(rect.position.y, rect.end.y):
-		if y < 0 or y >= FRAME_SIZE:
-			continue
-		for x in range(rect.position.x, rect.end.x):
-			if x < 0 or x >= FRAME_SIZE:
-				continue
-			image.set_pixel(origin.x + x, origin.y + y, color)
+    var path := ProjectSettings.globalize_path("res://assets/robots.png")
+    var error := image.save_png(path)
+    if error != OK:
+        push_error("Could not write %s (error %d)" % [path, error])
+        print("SPRITE_ATLAS_FAILED")
+        quit(1)
+        return
+    print("SPRITE_ATLAS_OK ", JSON.stringify({
+        "path": "res://assets/robots.png",
+        "size": [image.get_width(), image.get_height()],
+        "frames": FRAME_COUNT,
+    }))
+    quit()
 
 
-# Wraps every opaque cluster in a one-pixel dark border so silhouettes stay
-# readable against the dark arena at small sizes.
+func _draw_frame(image: Image, origin: Vector2i, frame_index: int) -> void:
+    match frame_index:
+        0:
+            _draw_chaser(image, origin)
+        1:
+            _draw_swarmer(image, origin)
+        2:
+            _draw_shielded(image, origin)
+        3:
+            _draw_ranged(image, origin)
+        4:
+            _draw_splitter(image, origin)
+        5:
+            _draw_heavy(image, origin)
+        6:
+            _draw_skitter(image, origin)
+        7:
+            _draw_elite(image, origin)
+
+
+func _draw_chaser(image: Image, origin: Vector2i) -> void:
+    _line(image, origin, Vector2i(16, 29), Vector2i(8, 40), 4, JOINT)
+    _line(image, origin, Vector2i(32, 29), Vector2i(40, 40), 4, JOINT)
+    _line(image, origin, Vector2i(17, 31), Vector2i(15, 43), 4, SHELL_DARK)
+    _line(image, origin, Vector2i(31, 31), Vector2i(33, 43), 4, SHELL_DARK)
+    _ellipse(image, origin, Vector2i(24, 25), Vector2i(16, 13), SHELL_DARK)
+    _ellipse(image, origin, Vector2i(24, 22), Vector2i(14, 12), SHELL)
+    _ellipse(image, origin, Vector2i(24, 19), Vector2i(10, 8), SHELL_LIT)
+    _rect(image, origin, Rect2i(17, 20, 14, 5), OUTLINE)
+    _rect(image, origin, Rect2i(19, 21, 10, 3), OPTIC)
+    _rect(image, origin, Rect2i(22, 21, 4, 2), OPTIC_LIT)
+    _line(image, origin, Vector2i(24, 11), Vector2i(24, 5), 2, SHELL_DARK)
+    _circle(image, origin, Vector2i(24, 4), 2, CYAN)
+    _rect(image, origin, Rect2i(10, 26, 5, 3), HAZARD)
+
+
+func _draw_swarmer(image: Image, origin: Vector2i) -> void:
+    for endpoint in [Vector2i(6, 14), Vector2i(5, 28), Vector2i(11, 42), Vector2i(37, 42), Vector2i(43, 28), Vector2i(42, 14)]:
+        _line(image, origin, Vector2i(24, 26), endpoint, 3, JOINT)
+        _circle(image, origin, endpoint, 2, SHELL_DARK)
+    _ellipse(image, origin, Vector2i(24, 25), Vector2i(12, 10), SHELL_DARK)
+    _ellipse(image, origin, Vector2i(24, 22), Vector2i(10, 8), SHELL)
+    _ellipse(image, origin, Vector2i(24, 19), Vector2i(7, 5), SHELL_LIT)
+    _circle(image, origin, Vector2i(24, 22), 4, OPTIC)
+    _circle(image, origin, Vector2i(23, 20), 1, OPTIC_LIT)
+    _rect(image, origin, Rect2i(21, 32, 6, 3), HAZARD)
+
+
+func _draw_shielded(image: Image, origin: Vector2i) -> void:
+    _line(image, origin, Vector2i(18, 33), Vector2i(14, 43), 6, JOINT)
+    _line(image, origin, Vector2i(31, 33), Vector2i(35, 43), 6, JOINT)
+    _rect(image, origin, Rect2i(13, 14, 25, 23), SHELL_DARK)
+    _rect(image, origin, Rect2i(17, 11, 17, 22), SHELL)
+    _rect(image, origin, Rect2i(19, 12, 13, 7), SHELL_LIT)
+    _rect(image, origin, Rect2i(21, 15, 9, 4), OPTIC)
+    _rect(image, origin, Rect2i(7, 12, 11, 28), SHELL_LIT)
+    _rect(image, origin, Rect2i(9, 15, 6, 22), SHELL)
+    _rect(image, origin, Rect2i(9, 19, 6, 4), HAZARD)
+    _rect(image, origin, Rect2i(9, 29, 6, 4), HAZARD)
+    _circle(image, origin, Vector2i(31, 27), 3, CYAN)
+
+
+func _draw_ranged(image: Image, origin: Vector2i) -> void:
+    _line(image, origin, Vector2i(22, 31), Vector2i(13, 43), 4, JOINT)
+    _line(image, origin, Vector2i(27, 31), Vector2i(35, 43), 4, JOINT)
+    _line(image, origin, Vector2i(25, 31), Vector2i(25, 44), 4, JOINT)
+    _ellipse(image, origin, Vector2i(24, 26), Vector2i(13, 11), SHELL_DARK)
+    _ellipse(image, origin, Vector2i(23, 23), Vector2i(11, 9), SHELL)
+    _ellipse(image, origin, Vector2i(22, 20), Vector2i(7, 5), SHELL_LIT)
+    _rect(image, origin, Rect2i(17, 21, 10, 4), OPTIC)
+    _rect(image, origin, Rect2i(29, 21, 15, 6), SHELL_DARK)
+    _rect(image, origin, Rect2i(33, 22, 12, 4), SHELL)
+    _rect(image, origin, Rect2i(43, 22, 3, 4), CYAN)
+    _line(image, origin, Vector2i(22, 13), Vector2i(22, 6), 2, SHELL_DARK)
+    _circle(image, origin, Vector2i(22, 5), 2, CYAN)
+    _rect(image, origin, Rect2i(29, 29, 6, 3), HAZARD)
+
+
+func _draw_splitter(image: Image, origin: Vector2i) -> void:
+    _line(image, origin, Vector2i(16, 33), Vector2i(10, 43), 5, JOINT)
+    _line(image, origin, Vector2i(32, 33), Vector2i(38, 43), 5, JOINT)
+    _ellipse(image, origin, Vector2i(24, 25), Vector2i(17, 13), SHELL_DARK)
+    _ellipse(image, origin, Vector2i(24, 22), Vector2i(15, 11), SHELL)
+    _line(image, origin, Vector2i(24, 10), Vector2i(24, 35), 2, OUTLINE)
+    _ellipse(image, origin, Vector2i(17, 21), Vector2i(6, 5), SHELL_LIT)
+    _ellipse(image, origin, Vector2i(31, 21), Vector2i(6, 5), SHELL_LIT)
+    _circle(image, origin, Vector2i(17, 22), 3, OPTIC)
+    _circle(image, origin, Vector2i(31, 22), 3, OPTIC)
+    _rect(image, origin, Rect2i(20, 34, 8, 3), HAZARD)
+
+
+func _draw_heavy(image: Image, origin: Vector2i) -> void:
+    _line(image, origin, Vector2i(17, 34), Vector2i(13, 44), 7, JOINT)
+    _line(image, origin, Vector2i(31, 34), Vector2i(35, 44), 7, JOINT)
+    _ellipse(image, origin, Vector2i(24, 25), Vector2i(17, 15), SHELL_DARK)
+    _rect(image, origin, Rect2i(8, 14, 10, 18), SHELL)
+    _rect(image, origin, Rect2i(30, 14, 10, 18), SHELL)
+    _rect(image, origin, Rect2i(10, 16, 6, 7), SHELL_LIT)
+    _rect(image, origin, Rect2i(32, 16, 6, 7), SHELL_LIT)
+    _ellipse(image, origin, Vector2i(24, 23), Vector2i(13, 12), SHELL)
+    _ellipse(image, origin, Vector2i(24, 18), Vector2i(9, 6), SHELL_LIT)
+    _rect(image, origin, Rect2i(18, 19, 12, 5), OPTIC)
+    _rect(image, origin, Rect2i(21, 20, 6, 2), OPTIC_LIT)
+    _rect(image, origin, Rect2i(31, 28, 7, 4), HAZARD)
+
+
+func _draw_skitter(image: Image, origin: Vector2i) -> void:
+    for pair in [
+        [Vector2i(17, 22), Vector2i(5, 9)],
+        [Vector2i(15, 26), Vector2i(3, 24)],
+        [Vector2i(17, 30), Vector2i(7, 42)],
+        [Vector2i(31, 22), Vector2i(43, 9)],
+        [Vector2i(33, 26), Vector2i(45, 24)],
+        [Vector2i(31, 30), Vector2i(41, 42)],
+    ]:
+        _line(image, origin, pair[0], pair[1], 3, JOINT)
+        _circle(image, origin, pair[1], 2, SHELL_DARK)
+    _ellipse(image, origin, Vector2i(24, 26), Vector2i(12, 8), SHELL_DARK)
+    _ellipse(image, origin, Vector2i(24, 23), Vector2i(10, 7), SHELL)
+    _rect(image, origin, Rect2i(17, 21, 14, 5), OPTIC)
+    _rect(image, origin, Rect2i(21, 22, 6, 2), OPTIC_LIT)
+    _rect(image, origin, Rect2i(21, 31, 6, 3), CYAN)
+
+
+func _draw_elite(image: Image, origin: Vector2i) -> void:
+    _line(image, origin, Vector2i(17, 34), Vector2i(13, 44), 6, JOINT)
+    _line(image, origin, Vector2i(31, 34), Vector2i(35, 44), 6, JOINT)
+    _ellipse(image, origin, Vector2i(24, 26), Vector2i(16, 14), SHELL_DARK)
+    _ellipse(image, origin, Vector2i(24, 23), Vector2i(14, 12), SHELL_LIT)
+    _line(image, origin, Vector2i(15, 14), Vector2i(12, 5), 4, SHELL_LIT)
+    _line(image, origin, Vector2i(24, 12), Vector2i(24, 2), 5, SHELL_LIT)
+    _line(image, origin, Vector2i(33, 14), Vector2i(36, 5), 4, SHELL_LIT)
+    _circle(image, origin, Vector2i(12, 5), 2, HAZARD)
+    _circle(image, origin, Vector2i(24, 2), 2, HAZARD)
+    _circle(image, origin, Vector2i(36, 5), 2, HAZARD)
+    _rect(image, origin, Rect2i(16, 20, 16, 6), OPTIC)
+    _rect(image, origin, Rect2i(20, 21, 8, 3), OPTIC_LIT)
+    _rect(image, origin, Rect2i(9, 25, 7, 7), SHELL)
+    _rect(image, origin, Rect2i(32, 25, 7, 7), SHELL)
+    _circle(image, origin, Vector2i(24, 32), 3, CYAN)
+
+
+func _rect(image: Image, origin: Vector2i, rect: Rect2i, color: Color) -> void:
+    for y in range(maxi(0, rect.position.y), mini(FRAME_SIZE, rect.end.y)):
+        for x in range(maxi(0, rect.position.x), mini(FRAME_SIZE, rect.end.x)):
+            image.set_pixel(origin.x + x, origin.y + y, color)
+
+
+func _circle(image: Image, origin: Vector2i, center: Vector2i, radius: int, color: Color) -> void:
+    var radius_squared := radius * radius
+    for y in range(center.y - radius, center.y + radius + 1):
+        for x in range(center.x - radius, center.x + radius + 1):
+            if x < 0 or y < 0 or x >= FRAME_SIZE or y >= FRAME_SIZE:
+                continue
+            var dx := x - center.x
+            var dy := y - center.y
+            if dx * dx + dy * dy <= radius_squared:
+                image.set_pixel(origin.x + x, origin.y + y, color)
+
+
+func _ellipse(image: Image, origin: Vector2i, center: Vector2i, radius: Vector2i, color: Color) -> void:
+    for y in range(center.y - radius.y, center.y + radius.y + 1):
+        for x in range(center.x - radius.x, center.x + radius.x + 1):
+            if x < 0 or y < 0 or x >= FRAME_SIZE or y >= FRAME_SIZE:
+                continue
+            var nx: float = float(x - center.x) / maxf(1.0, float(radius.x))
+            var ny: float = float(y - center.y) / maxf(1.0, float(radius.y))
+            if nx * nx + ny * ny <= 1.0:
+                image.set_pixel(origin.x + x, origin.y + y, color)
+
+
+func _line(image: Image, origin: Vector2i, start: Vector2i, finish: Vector2i, width: int, color: Color) -> void:
+    var delta := finish - start
+    var steps := maxi(absi(delta.x), absi(delta.y))
+    if steps <= 0:
+        _circle(image, origin, start, maxi(1, width / 2), color)
+        return
+    for step in range(steps + 1):
+        var point := Vector2(start).lerp(Vector2(finish), float(step) / float(steps))
+        _circle(image, origin, Vector2i(roundi(point.x), roundi(point.y)), maxi(1, width / 2), color)
+
+
+# Wrap every opaque cluster in a dark one-pixel border so silhouettes remain
+# readable against the industrial floor at gameplay scale.
 func _outline_frame(image: Image, origin: Vector2i) -> void:
-	var pending: Array[Vector2i] = []
-	for y in range(FRAME_SIZE):
-		for x in range(FRAME_SIZE):
-			if image.get_pixel(origin.x + x, origin.y + y).a > 0.0:
-				continue
-			if _has_opaque_neighbour(image, origin, x, y):
-				pending.append(Vector2i(x, y))
-	for point in pending:
-		image.set_pixel(origin.x + point.x, origin.y + point.y, OUTLINE)
+    var pending: Array[Vector2i] = []
+    for y in range(FRAME_SIZE):
+        for x in range(FRAME_SIZE):
+            if image.get_pixel(origin.x + x, origin.y + y).a > 0.0:
+                continue
+            if _has_opaque_neighbour(image, origin, x, y):
+                pending.append(Vector2i(x, y))
+    for point in pending:
+        image.set_pixel(origin.x + point.x, origin.y + point.y, OUTLINE)
 
 
 func _has_opaque_neighbour(image: Image, origin: Vector2i, x: int, y: int) -> bool:
-	var neighbours: Array[Vector2i] = [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]
-	for offset in neighbours:
-		var nx := x + offset.x
-		var ny := y + offset.y
-		if nx < 0 or ny < 0 or nx >= FRAME_SIZE or ny >= FRAME_SIZE:
-			continue
-		if image.get_pixel(origin.x + nx, origin.y + ny).a > 0.0:
-			return true
-	return false
-
-
-# Each entry is [Rect2i, Color], painted in order. Frames read as chassis
-# archetypes so enemy variants can map onto them.
-func _frame_parts(frame_index: int) -> Array:
-	match frame_index:
-		0:  # Grunt: boxy tracked chassis.
-			return [
-				[Rect2i(15, 3, 2, 4), SHELL_DARK],
-				[Rect2i(11, 6, 10, 6), SHELL_LIT],
-				[Rect2i(13, 8, 6, 2), VISOR],
-				[Rect2i(8, 12, 16, 11), SHELL],
-				[Rect2i(11, 15, 10, 3), SHELL_DARK],
-				[Rect2i(5, 23, 8, 5), SHELL_DARK],
-				[Rect2i(19, 23, 8, 5), SHELL_DARK],
-			]
-		1:  # Swarmer: small core on spindly legs.
-			return [
-				[Rect2i(13, 8, 6, 3), SHELL_LIT],
-				[Rect2i(11, 11, 10, 10), SHELL],
-				[Rect2i(13, 14, 6, 3), VISOR],
-				[Rect2i(7, 21, 3, 7), SHELL_DARK],
-				[Rect2i(13, 21, 2, 7), SHELL_DARK],
-				[Rect2i(17, 21, 2, 7), SHELL_DARK],
-				[Rect2i(22, 21, 3, 7), SHELL_DARK],
-			]
-		2:  # Shielded: bulk behind a bolted plate.
-			return [
-				[Rect2i(9, 9, 14, 15), SHELL],
-				[Rect2i(13, 12, 8, 3), VISOR],
-				[Rect2i(6, 6, 6, 20), SHELL_LIT],
-				[Rect2i(7, 10, 3, 3), SHELL_DARK],
-				[Rect2i(7, 19, 3, 3), SHELL_DARK],
-				[Rect2i(10, 24, 5, 4), SHELL_DARK],
-				[Rect2i(18, 24, 5, 4), SHELL_DARK],
-			]
-		3:  # Ranged: side-mounted barrel.
-			return [
-				[Rect2i(10, 6, 8, 5), SHELL_LIT],
-				[Rect2i(12, 8, 4, 2), VISOR],
-				[Rect2i(8, 11, 12, 13), SHELL],
-				[Rect2i(20, 13, 8, 4), SHELL_DARK],
-				[Rect2i(28, 13, 2, 4), VISOR_LIT],
-				[Rect2i(9, 24, 5, 4), SHELL_DARK],
-				[Rect2i(15, 24, 5, 4), SHELL_DARK],
-			]
-		4:  # Splitter: seamed shell, twin optics.
-			return [
-				[Rect2i(8, 8, 16, 16), SHELL],
-				[Rect2i(10, 12, 4, 3), VISOR],
-				[Rect2i(18, 12, 4, 3), VISOR],
-				[Rect2i(15, 8, 1, 14), OUTLINE],
-				[Rect2i(8, 24, 16, 2), SHELL_DARK],
-				[Rect2i(9, 26, 5, 2), SHELL_DARK],
-				[Rect2i(18, 26, 5, 2), SHELL_DARK],
-			]
-		5:  # Heavy: shouldered brawler.
-			return [
-				[Rect2i(13, 4, 6, 4), SHELL_DARK],
-				[Rect2i(4, 9, 6, 9), SHELL_LIT],
-				[Rect2i(22, 9, 6, 9), SHELL_LIT],
-				[Rect2i(9, 8, 14, 17), SHELL],
-				[Rect2i(12, 12, 8, 3), VISOR],
-				[Rect2i(9, 25, 5, 3), SHELL_DARK],
-				[Rect2i(18, 25, 5, 3), SHELL_DARK],
-			]
-		6:  # Skitter: low core with splayed struts.
-			return [
-				[Rect2i(5, 9, 3, 3), SHELL_DARK],
-				[Rect2i(8, 12, 3, 3), SHELL_DARK],
-				[Rect2i(24, 9, 3, 3), SHELL_DARK],
-				[Rect2i(21, 12, 3, 3), SHELL_DARK],
-				[Rect2i(6, 21, 3, 3), SHELL_DARK],
-				[Rect2i(9, 18, 3, 3), SHELL_DARK],
-				[Rect2i(23, 21, 3, 3), SHELL_DARK],
-				[Rect2i(20, 18, 3, 3), SHELL_DARK],
-				[Rect2i(11, 12, 10, 8), SHELL],
-				[Rect2i(13, 14, 6, 3), VISOR],
-			]
-		7:  # Elite: crowned, brighter plating.
-			return [
-				[Rect2i(9, 4, 3, 7), SHELL_LIT],
-				[Rect2i(14, 2, 4, 9), SHELL_LIT],
-				[Rect2i(20, 4, 3, 7), SHELL_LIT],
-				[Rect2i(9, 4, 3, 2), VISOR_LIT],
-				[Rect2i(14, 2, 4, 2), VISOR_LIT],
-				[Rect2i(20, 4, 3, 2), VISOR_LIT],
-				[Rect2i(9, 10, 14, 14), SHELL_LIT],
-				[Rect2i(12, 13, 8, 3), VISOR],
-				[Rect2i(11, 18, 10, 2), SHELL_DARK],
-				[Rect2i(9, 24, 5, 4), SHELL_DARK],
-				[Rect2i(18, 24, 5, 4), SHELL_DARK],
-			]
-		_:
-			return []
+    for offset in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+        var nx: int = x + int(offset.x)
+        var ny: int = y + int(offset.y)
+        if nx < 0 or ny < 0 or nx >= FRAME_SIZE or ny >= FRAME_SIZE:
+            continue
+        if image.get_pixel(origin.x + nx, origin.y + ny).a > 0.0:
+            return true
+    return false

@@ -19,7 +19,7 @@ The repository intentionally favors a small playable loop over a content framewo
 - Proportional camera zoom-out whenever player movement speed increases
 - Fast-scaling persistent bosses with telegraphed attacks, burst protection, and weapon-only rewards that can unlock open weapon slots
 - A minimap that always marks bosses
-- A throttled CC0 stock-sound pass for combat, bosses, pickups, upgrades, targeting, and death
+- A generated robot-themed sound system for weapons, enemies, bosses, pickups, UI navigation, upgrades, targeting, restart, and death
 - Death summary and one-input restart
 - A headless 1,200-enemy stress mode
 
@@ -29,8 +29,9 @@ The detailed design remains in [`docs/MVP_DESIGN.md`](docs/MVP_DESIGN.md).
 
 - Move: `WASD` or arrow keys
 - Toggle targeting between Closest and Strongest: `T`
-- Choose upgrades: mouse or number keys `1`, `2`, and `3`
-- Restart after death: `R`, `Enter`, or the restart button
+- Choose upgrades: mouse, number keys `1`–`3`, arrows plus `Enter`, or arrows plus `Space`
+- Restart after death with the same operator: `R`, `Enter`, `Space`, or the restart button
+- Choose a different operator after death: `Escape`
 - Quit: `Escape`
 
 ## Run from the editor
@@ -99,16 +100,16 @@ src/game_config.gd          tuning and upgrade text
 src/simulation_world.gd     simulation, combat, spawning, health, XP
 src/hud.gd                  HUD and modal interfaces
 src/minimap.gd              boss and emergency pickup radar
-src/sound_manager.gd        pooled, throttled stock sound playback
-assets/audio/                selected Kenney CC0 effects and license mapping
+src/sound_manager.gd        pooled, throttled, priority-aware sound playback
+assets/audio/                generated robot-themed sound pack and documentation
 scenes/main.tscn            minimal scene composition
 ```
 
 The simulation uses no node per enemy and no signal per hit. Large populations live in compact parallel arrays, collision uses a uniform spatial grid with reused buckets, and normal enemies and projectiles render through `MultiMesh` batches. Needle and Longshot require targets in their own ranges, Aura Pulse schedules delayed echo pulses that recheck nearby enemies, and Mire Field persists and slows nearby enemies without requiring a target.
 
-## Third-party audio
+## Generated audio
 
-The sound effects in `assets/audio/` are selected and renamed clips from Kenney's Digital Audio, Sci-fi Sounds, Impact Sounds, UI Audio, and Music Jingles packs. They are licensed under Creative Commons Zero (CC0 1.0). See `assets/audio/LICENSE_KENNEY_CC0.txt` for the source-file mapping and license details.
+The sound pack is synthesized deterministically by `tools/generate_robot_audio.py` using only Python's standard library. It requires no external samples. See `assets/audio/README.md` for the palette, regeneration command, and mix notes.
 
 ## Contribution rules
 

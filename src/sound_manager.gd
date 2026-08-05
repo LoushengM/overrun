@@ -3,185 +3,76 @@ extends Node
 
 const PLAYER_POOL_SIZE := 24
 
-const CUE_CONFIG := {
-    "needle_fire": {
-        "path": "res://assets/audio/needle_fire.wav",
-        "volume_db": -15.0,
-        "cooldown": 0.065,
-        "pitch_min": 0.96,
-        "pitch_max": 1.04,
-    },
-    "longshot_fire": {
-        "path": "res://assets/audio/longshot_fire.wav",
-        "volume_db": -8.0,
-        "cooldown": 0.18,
-        "pitch_min": 0.97,
-        "pitch_max": 1.03,
-    },
-    "aura_pulse": {
-        "path": "res://assets/audio/aura_pulse.wav",
-        "volume_db": -9.0,
-        "cooldown": 0.30,
-        "pitch_min": 0.96,
-        "pitch_max": 1.01,
-    },
-    "mire_deploy": {
-        "path": "res://assets/audio/mire_deploy.wav",
-        "volume_db": -16.0,
-        "cooldown": 0.18,
-        "pitch_min": 0.92,
-        "pitch_max": 1.06,
-    },
-    # The expanded weapon roster gets its own cues rather than borrowing from
-    # the original four. These fire far more often than anything else in the
-    # game, so every source was pitched down and band-checked: all five sit at
-    # hi_2k <= -37 dB, well clear of the bright band that gets fatiguing on
-    # repeat. Cooldowns are deliberately at or above each weapon's floor cadence
-    # so a dense crowd cannot machine-gun the pool.
-    "chain_arc": {
-        "path": "res://assets/audio/chain_arc.wav",
-        "volume_db": -17.0,
-        "cooldown": 0.16,
-        "pitch_min": 0.94,
-        "pitch_max": 1.04,
-    },
-    "flak_fire": {
-        "path": "res://assets/audio/flak_fire.wav",
-        "volume_db": -14.0,
-        "cooldown": 0.12,
-        "pitch_min": 0.92,
-        "pitch_max": 1.06,
-    },
-    # Orbital contact is the highest-repetition cue in the game: eight
-    # satellites can each land a hit every interval. Quietest of the set with
-    # the widest pitch jitter so repeats do not phase into a single tone.
-    "orbital_contact": {
-        "path": "res://assets/audio/orbital_contact.wav",
-        "volume_db": -23.0,
-        "cooldown": 0.09,
-        "pitch_min": 0.88,
-        "pitch_max": 1.10,
-    },
-    "detonator_launch": {
-        "path": "res://assets/audio/detonator_launch.wav",
-        "volume_db": -13.0,
-        "cooldown": 0.22,
-        "pitch_min": 0.95,
-        "pitch_max": 1.05,
-    },
-    "detonator_blast": {
-        "path": "res://assets/audio/detonator_blast.wav",
-        "volume_db": -11.0,
-        "cooldown": 0.14,
-        "pitch_min": 0.93,
-        "pitch_max": 1.05,
-    },
-    "enemy_hit": {
-        "path": "res://assets/audio/enemy_hit.wav",
-        "volume_db": -21.0,
-        "cooldown": 0.055,
-        "pitch_min": 0.90,
-        "pitch_max": 1.10,
-    },
-    "boss_hit": {
-        "path": "res://assets/audio/boss_hit.wav",
-        "volume_db": -13.0,
-        "cooldown": 0.08,
-        "pitch_min": 0.95,
-        "pitch_max": 1.04,
-    },
-    "player_hit": {
-        "path": "res://assets/audio/player_hit.wav",
-        "volume_db": -8.0,
-        "cooldown": 0.20,
-        "pitch_min": 0.97,
-        "pitch_max": 1.03,
-    },
-    "last_stand": {
-        "path": "res://assets/audio/last_stand.wav",
-        "volume_db": -5.0,
-        "cooldown": 0.50,
-        "pitch_min": 1.0,
-        "pitch_max": 1.0,
-    },
-    "boss_spawn": {
-        "path": "res://assets/audio/boss_spawn.wav",
-        "volume_db": -7.0,
-        "cooldown": 0.50,
-        "pitch_min": 0.96,
-        "pitch_max": 1.02,
-    },
-    "boss_telegraph": {
-        "path": "res://assets/audio/boss_telegraph.wav",
-        "volume_db": -10.0,
-        "cooldown": 0.30,
-        "pitch_min": 0.98,
-        "pitch_max": 1.02,
-    },
-    "boss_defeat": {
-        "path": "res://assets/audio/boss_defeat.wav",
-        "volume_db": -6.0,
-        "cooldown": 0.40,
-        "pitch_min": 0.96,
-        "pitch_max": 1.02,
-    },
-    "health_pickup": {
-        "path": "res://assets/audio/health_pickup.wav",
-        "volume_db": -12.0,
-        "cooldown": 0.10,
-        "pitch_min": 0.98,
-        "pitch_max": 1.05,
-    },
-    "level_up": {
-        "path": "res://assets/audio/level_up.wav",
-        "volume_db": -8.0,
-        "cooldown": 0.20,
-        "pitch_min": 1.0,
-        "pitch_max": 1.0,
-    },
-    "boss_reward": {
-        "path": "res://assets/audio/boss_reward.wav",
-        "volume_db": -8.0,
-        "cooldown": 0.20,
-        "pitch_min": 1.0,
-        "pitch_max": 1.0,
-    },
-    "upgrade_select": {
-        "path": "res://assets/audio/upgrade_select.wav",
-        "volume_db": -10.0,
-        "cooldown": 0.05,
-        "pitch_min": 0.98,
-        "pitch_max": 1.04,
-    },
-    "weapon_unlock": {
-        "path": "res://assets/audio/weapon_unlock.wav",
-        "volume_db": -7.0,
-        "cooldown": 0.20,
-        "pitch_min": 1.0,
-        "pitch_max": 1.0,
-    },
-    "target_toggle": {
-        "path": "res://assets/audio/target_toggle.wav",
-        "volume_db": -12.0,
-        "cooldown": 0.08,
-        "pitch_min": 0.98,
-        "pitch_max": 1.02,
-    },
-    "run_over": {
-        "path": "res://assets/audio/run_over.wav",
-        "volume_db": -8.0,
-        "cooldown": 0.30,
-        "pitch_min": 1.0,
-        "pitch_max": 1.0,
-    },
+
+static func _cue(
+    file_name: String,
+    volume_db: float,
+    cooldown: float,
+    pitch_min: float,
+    pitch_max: float,
+    priority: int
+) -> Dictionary:
+    return {
+        "path": "res://assets/audio/%s.wav" % file_name,
+        "volume_db": volume_db,
+        "cooldown": cooldown,
+        "pitch_min": pitch_min,
+        "pitch_max": pitch_max,
+        "priority": priority,
+    }
+
+static var CUE_CONFIG := {
+    # Player weapons share a clean cyan-energy language. High-frequency or
+    # high-repetition cues are deliberately quieter and lower priority.
+    "needle_fire": _cue("needle_fire", -17.0, 0.060, 0.97, 1.03, 1),
+    "longshot_fire": _cue("longshot_fire", -10.0, 0.180, 0.98, 1.02, 2),
+    "aura_pulse": _cue("aura_pulse", -11.0, 0.300, 0.97, 1.02, 2),
+    "mire_deploy": _cue("mire_deploy", -14.0, 0.180, 0.95, 1.04, 2),
+    "chain_arc": _cue("chain_arc", -16.0, 0.160, 0.94, 1.04, 1),
+    "flak_fire": _cue("flak_fire", -14.0, 0.120, 0.94, 1.05, 1),
+    "orbital_contact": _cue("orbital_contact", -22.0, 0.090, 0.90, 1.09, 0),
+    "detonator_launch": _cue("detonator_launch", -12.0, 0.220, 0.96, 1.03, 2),
+    "detonator_blast": _cue("detonator_blast", -9.0, 0.140, 0.95, 1.03, 3),
+
+    # Enemy and damage feedback uses rougher, lower metal tones. Destruction is
+    # separate from hit feedback so a kill reads even in a crowded volley.
+    "enemy_ranged_fire": _cue("enemy_ranged_fire", -20.0, 0.100, 0.94, 1.06, 1),
+    "enemy_hit": _cue("enemy_hit", -23.0, 0.050, 0.90, 1.10, 0),
+    "enemy_destroy": _cue("enemy_destroy", -18.0, 0.060, 0.91, 1.08, 1),
+    "boss_hit": _cue("boss_hit", -13.0, 0.080, 0.96, 1.03, 3),
+    "player_hit": _cue("player_hit", -8.0, 0.200, 0.98, 1.02, 5),
+    "last_stand": _cue("last_stand", -5.0, 0.500, 1.00, 1.00, 7),
+
+    # Boss and pacing events must survive a saturated combat mix.
+    "boss_spawn": _cue("boss_spawn", -6.0, 0.500, 0.98, 1.01, 7),
+    "boss_telegraph": _cue("boss_telegraph", -9.0, 0.300, 0.99, 1.01, 6),
+    "boss_slam": _cue("boss_slam", -5.0, 0.450, 0.98, 1.01, 7),
+    "boss_defeat": _cue("boss_defeat", -5.0, 0.500, 0.98, 1.01, 7),
+    "surge_start": _cue("surge_start", -12.0, 0.800, 0.99, 1.01, 4),
+
+    # Progression and UI are concise digital/servo cues. Menu movement is kept
+    # very quiet because held-arrow navigation can repeat quickly.
+    "health_pickup": _cue("health_pickup", -10.0, 0.100, 0.98, 1.03, 4),
+    "level_up": _cue("level_up", -7.0, 0.200, 1.00, 1.00, 7),
+    "boss_reward": _cue("boss_reward", -6.0, 0.200, 1.00, 1.00, 7),
+    "menu_move": _cue("menu_move", -22.0, 0.035, 0.98, 1.03, 4),
+    "upgrade_select": _cue("upgrade_select", -15.0, 0.050, 0.99, 1.02, 5),
+    "character_select": _cue("character_select", -10.0, 0.120, 0.99, 1.01, 6),
+    "menu_back": _cue("menu_back", -14.0, 0.100, 0.99, 1.01, 5),
+    "restart": _cue("restart", -10.0, 0.200, 0.99, 1.01, 6),
+    "weapon_unlock": _cue("weapon_unlock", -6.0, 0.200, 1.00, 1.00, 7),
+    "target_toggle": _cue("target_toggle", -15.0, 0.080, 0.99, 1.01, 4),
+    "run_over": _cue("run_over", -7.0, 0.300, 1.00, 1.00, 7),
 }
 
 var players: Array[AudioStreamPlayer] = []
+var player_priorities: Array[int] = []
 var streams: Dictionary = {}
 var next_allowed_time: Dictionary = {}
 var rng := RandomNumberGenerator.new()
 var next_player_index := 0
 var playback_enabled := true
+var last_cue_requested := ""
 
 
 func _ready() -> void:
@@ -196,13 +87,15 @@ func _ready() -> void:
         player.process_mode = Node.PROCESS_MODE_ALWAYS
         add_child(player)
         players.append(player)
+        player_priorities.append(-1)
 
 
 func play_cue(cue: String) -> void:
-    if not playback_enabled:
-        return
     var config_value: Variant = CUE_CONFIG.get(cue, null)
     if config_value == null:
+        return
+    last_cue_requested = cue
+    if not playback_enabled:
         return
     var config: Dictionary = config_value
     var now := Time.get_ticks_msec() / 1000.0
@@ -210,7 +103,10 @@ func play_cue(cue: String) -> void:
         return
     next_allowed_time[cue] = now + float(config.get("cooldown", 0.0))
 
-    var player := _claim_player()
+    var priority := int(config.get("priority", 0))
+    var player := _claim_player(priority)
+    if player == null:
+        return
     player.stream = streams.get(cue)
     player.volume_db = float(config.get("volume_db", 0.0))
     player.pitch_scale = rng.randf_range(
@@ -221,9 +117,10 @@ func play_cue(cue: String) -> void:
 
 
 func stop_all() -> void:
-    for player in players:
-        player.stop()
-        player.stream = null
+    for index in range(players.size()):
+        players[index].stop()
+        players[index].stream = null
+        player_priorities[index] = -1
     next_allowed_time.clear()
 
 
@@ -248,14 +145,26 @@ func get_cue_names() -> Array[String]:
     return result
 
 
-func _claim_player() -> AudioStreamPlayer:
+func _claim_player(priority: int) -> AudioStreamPlayer:
     for offset in range(players.size()):
         var index := (next_player_index + offset) % players.size()
         if not players[index].playing:
             next_player_index = (index + 1) % players.size()
+            player_priorities[index] = priority
             return players[index]
 
-    var player := players[next_player_index]
-    next_player_index = (next_player_index + 1) % players.size()
+    # When all voices are busy, replace the least important cue rather than a
+    # boss warning, damage alert, or progression confirmation at random.
+    var claim_index := next_player_index
+    var lowest_priority := player_priorities[claim_index]
+    for index in range(players.size()):
+        if player_priorities[index] < lowest_priority:
+            lowest_priority = player_priorities[index]
+            claim_index = index
+    if priority < lowest_priority:
+        return null
+    var player := players[claim_index]
+    next_player_index = (claim_index + 1) % players.size()
     player.stop()
+    player_priorities[claim_index] = priority
     return player

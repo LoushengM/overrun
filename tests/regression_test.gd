@@ -15,8 +15,10 @@ func _run() -> void:
     var hud := scene.get_node("HUD") as GameHud
     var audio := scene.get_node("SoundManager") as SoundManager
 
-    _test_audio_wiring(audio, world)
-    _test_pause_and_keyboard_selection(scene, world, hud)
+    _test_audio_wiring(audio, world, hud)
+    _test_visual_overhaul_assets(world, hud)
+    _test_pause_and_keyboard_selection(scene, world, hud, audio)
+    _test_restart_input_and_character_reuse(scene, world, hud, audio)
     _test_projectile_damage_conservation(world)
     _test_offense_pity(world)
     _test_upgrade_roll_weights(world)
@@ -39,7 +41,7 @@ func _run() -> void:
     quit()
 
 
-func _test_audio_wiring(audio: SoundManager, world: SimulationWorld) -> void:
+func _test_audio_wiring(audio: SoundManager, world: SimulationWorld, hud: GameHud) -> void:
     assert(audio != null, "The main scene must include a SoundManager")
     assert(audio.players.size() == SoundManager.PLAYER_POOL_SIZE, "The sound manager must initialize its bounded player pool")
     var expected_cues := [
@@ -47,17 +49,25 @@ func _test_audio_wiring(audio: SoundManager, world: SimulationWorld) -> void:
         "longshot_fire",
         "aura_pulse",
         "mire_deploy",
+        "enemy_ranged_fire",
         "enemy_hit",
+        "enemy_destroy",
         "boss_hit",
         "player_hit",
         "last_stand",
         "boss_spawn",
         "boss_telegraph",
+        "boss_slam",
         "boss_defeat",
+        "surge_start",
         "health_pickup",
         "level_up",
         "boss_reward",
+        "menu_move",
         "upgrade_select",
+        "character_select",
+        "menu_back",
+        "restart",
         "weapon_unlock",
         "target_toggle",
         "run_over",
@@ -68,8 +78,10 @@ func _test_audio_wiring(audio: SoundManager, world: SimulationWorld) -> void:
         "detonator_blast",
     ]
     for cue in expected_cues:
-        assert(audio.has_cue(cue), "Missing stock sound cue: %s" % cue)
+        assert(audio.has_cue(cue), "Missing robot sound cue: %s" % cue)
         assert(audio.get_stream(cue) != null, "Sound cue must have a loaded stream: %s" % cue)
+    assert(audio.get_cue_names().size() == expected_cues.size(), "The configured cue set and regression inventory must stay in sync")
+    assert(int(SoundManager.CUE_CONFIG["boss_slam"].get("priority", 0)) > int(SoundManager.CUE_CONFIG["needle_fire"].get("priority", 0)), "Boss impacts must outrank frequent weapon voices")
 
     world.reset_run()
     _clear_combat_state(world)
@@ -82,11 +94,58 @@ func _test_audio_wiring(audio: SoundManager, world: SimulationWorld) -> void:
         emitted_cues.append(cue)
     world.sound_requested.connect(capture_cue)
     world._update_needle(0.0)
-    assert(emitted_cues.has("needle_fire"), "Needle fire must request its stock sound")
+    assert(emitted_cues.has("needle_fire"), "Needle fire must request its robot weapon cue")
+
+    emitted_cues.clear()
+    world._spawn_enemy_shot(Vector2(100.0, 0.0), Vector2.LEFT, 1.0)
+    assert(emitted_cues.has("enemy_ranged_fire"), "Ranged robots must announce a fired energy bolt")
+
+    emitted_cues.clear()
+    _clear_combat_state(world)
+    world._add_enemy(Vector2(80.0, 0.0), 0.0, 0.0, 0.0, 14.0, 1, SimulationWorld.EnemyKind.NORMAL, Vector2.ZERO)
+    world._process_deaths()
+    assert(emitted_cues.has("enemy_destroy"), "Destroyed normal robots must have a distinct collapse cue")
+
+    emitted_cues.clear()
+    _clear_combat_state(world)
+    world.player_position = Vector2.ZERO
+    world._add_enemy(Vector2(120.0, 0.0), 100.0, 0.0, 0.0, GameConfig.BOSS_RADIUS, 1, SimulationWorld.EnemyKind.BOSS, Vector2.ZERO)
+    world.enemy_boss_telegraph[0] = 0.01
+    world._update_enemies(0.02)
+    assert(emitted_cues.has("boss_slam"), "A completed boss telegraph must end with a slam impact cue")
+
+    emitted_cues.clear()
+    _clear_combat_state(world)
+    world.surge_active = false
+    world.surge_cooldown = 0.0
+    world.nearby_threat = 0
+    world.threat_check_timer = 1.0
+    world._update_spawning(0.0)
+    assert(emitted_cues.has("surge_start"), "A new spawn surge must have an audible warning")
+
+    var hud_cues: Array[String] = []
+    var capture_hud_cue := func(cue: String) -> void:
+        hud_cues.append(cue)
+    hud.sound_requested.connect(capture_hud_cue)
+    hud.show_upgrade(["damage", "armor", "max_health"])
+    hud._move_upgrade_focus(1)
+    assert(hud_cues.has("menu_move"), "Keyboard focus movement must emit the quiet servo navigation cue")
+    hud.hide_upgrade()
+    hud.sound_requested.disconnect(capture_hud_cue)
     world.sound_requested.disconnect(capture_cue)
 
 
-func _test_pause_and_keyboard_selection(scene: Node, world: SimulationWorld, hud: GameHud) -> void:
+func _test_visual_overhaul_assets(world: SimulationWorld, hud: GameHud) -> void:
+    assert(world.sprite_atlas_texture != null, "The robot enemy atlas must load")
+    assert(world.sprite_atlas_texture.get_size() == Vector2(192, 96), "The robot atlas must keep eight 48px frames")
+    assert(world.floor_texture != null and world.floor_texture.get_size() == Vector2(192, 192), "The industrial floor texture must be generated")
+    assert(world.projectile_texture != null and world.projectile_texture.get_size() == Vector2(144, 48), "The projectile atlas must contain three 48px frames")
+    assert(world.normal_enemy_multimesh.use_custom_data, "Enemy batching must retain atlas UV custom data")
+    assert(world.projectile_multimesh.use_custom_data, "Projectile batching must select visual frames through custom data")
+    assert(hud.upgrade_buttons[0].get_theme_stylebox("focus") is StyleBoxFlat, "Upgrade buttons must expose the cyan keyboard-focus treatment")
+
+
+func _test_pause_and_keyboard_selection(scene: Node, world: SimulationWorld, hud: GameHud, audio: SoundManager) -> void:
     assert(scene.process_mode == Node.PROCESS_MODE_ALWAYS, "Game root must keep handling pause-menu input")
     assert(world.process_mode == Node.PROCESS_MODE_PAUSABLE, "World must stop processing during upgrades")
 
@@ -97,12 +156,75 @@ func _test_pause_and_keyboard_selection(scene: Node, world: SimulationWorld, hud
     assert(paused, "Level-up must pause the scene tree")
     assert(hud.upgrade_overlay.visible, "Level-up choices must be visible")
 
-    var key_event := InputEventKey.new()
-    key_event.keycode = KEY_2
-    key_event.pressed = true
-    hud._input(key_event)
-    assert(not paused, "Choosing an upgrade must resume the scene tree")
-    assert(world.weapon_pierce == old_pierce + 1, "Key 2 must choose the second upgrade")
+    assert(hud.upgrade_buttons[0].has_focus(), "The first upgrade must receive keyboard focus when the menu opens")
+    var down_event := InputEventKey.new()
+    down_event.keycode = KEY_DOWN
+    down_event.pressed = true
+    hud._input(down_event)
+    assert(hud.upgrade_buttons[1].has_focus(), "Down arrow must move upgrade focus to the next choice")
+    assert(audio.last_cue_requested == "menu_move", "Arrow navigation must play the menu movement cue")
+
+    var space_event := InputEventKey.new()
+    space_event.keycode = KEY_SPACE
+    space_event.pressed = true
+    hud._input(space_event)
+    assert(not paused, "Space must confirm the focused upgrade and resume the scene tree")
+    assert(world.weapon_pierce == old_pierce + 1, "Space must apply the focused second upgrade")
+    assert(audio.last_cue_requested == "upgrade_select", "Confirming a stat upgrade must play its digital confirmation")
+
+    world.pending_upgrade = true
+    var old_armor := world.player_armor
+    scene.call("_on_level_up_requested", options)
+    var up_event := InputEventKey.new()
+    up_event.keycode = KEY_UP
+    up_event.pressed = true
+    hud._input(up_event)
+    assert(hud.upgrade_buttons[2].has_focus(), "Up arrow from the first choice must wrap to the last choice")
+
+    var enter_event := InputEventKey.new()
+    enter_event.keycode = KEY_ENTER
+    enter_event.pressed = true
+    hud._input(enter_event)
+    assert(not paused, "Enter must confirm the focused upgrade and resume the scene tree")
+    assert(world.player_armor > old_armor, "Enter must apply the focused last upgrade")
+
+
+func _test_restart_input_and_character_reuse(scene: Node, world: SimulationWorld, hud: GameHud, audio: SoundManager) -> void:
+    world.select_character("scout")
+    world.reset_run()
+    hud.reset_display()
+    paused = false
+
+    for restart_key in [KEY_R, KEY_ENTER, KEY_SPACE]:
+        world.is_running = false
+        hud.show_death({})
+        var restart_event := InputEventKey.new()
+        restart_event.keycode = restart_key
+        restart_event.pressed = true
+        hud._input(restart_event)
+        assert(world.is_running, "R, Enter, and Space must each restart a finished run")
+        assert(world.selected_character == "scout", "Normal restart must preserve the chosen character")
+        assert(not hud.death_overlay.visible, "Restart must close the death overlay")
+        assert(not hud.character_overlay.visible, "Normal restart must skip character selection")
+        assert(not paused, "Normal restart must resume play immediately")
+        assert(audio.last_cue_requested == "restart", "Normal restart must play the robot boot cue")
+
+    world.is_running = false
+    hud.show_death({})
+    assert("Space" in hud.death_summary.text and "Escape" in hud.death_summary.text, "Death instructions must show both restart and character-select controls")
+    var escape_event := InputEventKey.new()
+    escape_event.keycode = KEY_ESCAPE
+    escape_event.pressed = true
+    hud._input(escape_event)
+    assert(world.selected_character == "scout", "Opening character selection must keep the current choice highlighted")
+    assert(hud.character_overlay.visible, "Escape on the death screen must open character selection")
+    assert(paused, "Character selection must pause the world")
+    assert(audio.last_cue_requested == "menu_back", "Escape from death must play the menu-back cue")
+
+    scene.call("_on_character_selected", GameConfig.DEFAULT_CHARACTER_ID)
+    assert(not paused, "Choosing a character after death must resume the run")
+    assert(world.selected_character == GameConfig.DEFAULT_CHARACTER_ID, "The test must restore the default character for later baseline checks")
+    assert(audio.last_cue_requested == "character_select", "Operator confirmation must use its dedicated servo cue")
 
 
 func _test_projectile_damage_conservation(world: SimulationWorld) -> void:
@@ -617,6 +739,18 @@ func _test_toroidal_world(world: SimulationWorld) -> void:
     assert(WorldSpace.delta(Vector2(1000.0, 2000.0), Vector2(1300.0, 1700.0)).is_equal_approx(Vector2(300.0, -300.0)), "Interior deltas must match plain subtraction")
     assert(WorldSpace.direction(Vector2(5.0, 5.0), Vector2(5.0, 5.0)) == Vector2.ZERO, "Coincident points must not produce a NaN direction")
     assert(is_equal_approx(WorldSpace.nearest_image(Vector2(size - 10.0, 10.0), Vector2(10.0, 10.0)).x, size + 10.0), "Nearest image must project across the seam")
+
+    # Camera smoothing must not interpolate across the full flat map when the
+    # player crosses a toroidal seam. The rendered center should rebase onto the
+    # wrapped player position immediately.
+    world.camera.position = Vector2(size - 5.0, 100.0)
+    world.camera.reset_smoothing()
+    world.camera.force_update_scroll()
+    world.player_position = Vector2(size - 5.0, 100.0)
+    world._set_player_position(Vector2(size + 5.0, 100.0))
+    assert(world.player_position.is_equal_approx(Vector2(5.0, 100.0)), "Player movement must wrap onto the opposite edge")
+    assert(world.camera.position.is_equal_approx(world.player_position), "Camera target must follow the wrapped player immediately")
+    assert(world.camera.get_screen_center_position().is_equal_approx(world.player_position), "Camera smoothing state must rebase instead of panning across the map")
 
     # Targeting finds an enemy that is only close across a seam.
     world.reset_run()

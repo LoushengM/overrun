@@ -1,9 +1,21 @@
 class_name GameHud
 extends CanvasLayer
 
+const UI_VOID := Color("071016")
+const UI_PANEL := Color(0.035, 0.075, 0.095, 0.93)
+const UI_PANEL_ALT := Color(0.055, 0.11, 0.135, 0.96)
+const UI_BORDER := Color(0.12, 0.58, 0.68, 0.88)
+const UI_CYAN := Color("12d9f2")
+const UI_TEAL := Color("3bf2cf")
+const UI_ORANGE := Color("f3942d")
+const UI_RED := Color("ff4d3d")
+const UI_TEXT := Color("d7e7ec")
+const UI_MUTED := Color("78909b")
+
 signal upgrade_selected(upgrade_id: String)
 signal character_selected(character_id: String)
-signal restart_requested
+signal restart_requested(change_character: bool)
+signal sound_requested(cue: String)
 
 var root: Control
 var health_bar: ProgressBar
@@ -18,10 +30,13 @@ var upgrade_overlay: ColorRect
 var upgrade_title: Label
 var upgrade_subtitle: Label
 var upgrade_buttons: Array[Button] = []
+var upgrade_selection_index := 0
 var death_overlay: ColorRect
 var death_summary: Label
 var character_overlay: ColorRect
 var character_buttons: Array[Button] = []
+var character_selection_index := -1
+var death_restart_button: Button
 var boss_notice_time := 0.0
 
 
@@ -55,6 +70,17 @@ func _input(event: InputEvent) -> void:
         if option_index >= 0 and option_index < upgrade_buttons.size() and upgrade_buttons[option_index].visible:
             _on_upgrade_button_pressed(upgrade_buttons[option_index])
             get_viewport().set_input_as_handled()
+            return
+        match key_event.keycode:
+            KEY_UP, KEY_LEFT:
+                _move_upgrade_focus(-1)
+                get_viewport().set_input_as_handled()
+            KEY_DOWN, KEY_RIGHT:
+                _move_upgrade_focus(1)
+                get_viewport().set_input_as_handled()
+            KEY_ENTER, KEY_KP_ENTER, KEY_SPACE:
+                _confirm_upgrade_selection()
+                get_viewport().set_input_as_handled()
         return
 
     if character_overlay.visible:
@@ -62,6 +88,16 @@ func _input(event: InputEvent) -> void:
         if character_index >= 0 and character_index < character_buttons.size():
             _on_character_button_pressed(character_buttons[character_index])
             get_viewport().set_input_as_handled()
+        return
+
+    if death_overlay.visible:
+        match key_event.keycode:
+            KEY_R, KEY_ENTER, KEY_KP_ENTER, KEY_SPACE:
+                restart_requested.emit(false)
+                get_viewport().set_input_as_handled()
+            KEY_ESCAPE:
+                restart_requested.emit(true)
+                get_viewport().set_input_as_handled()
 
 
 func _digit_index(keycode: int) -> int:
@@ -80,6 +116,50 @@ func _digit_index(keycode: int) -> int:
             return 5
         _:
             return -1
+
+
+func _move_upgrade_focus(direction: int) -> void:
+    var visible_indices: Array[int] = []
+    for i in range(upgrade_buttons.size()):
+        if upgrade_buttons[i].visible:
+            visible_indices.append(i)
+    if visible_indices.is_empty():
+        return
+    var current_position := visible_indices.find(upgrade_selection_index)
+    if current_position < 0:
+        current_position = 0
+    var next_position := posmod(current_position + direction, visible_indices.size())
+    var next_index := visible_indices[next_position]
+    if next_index != upgrade_selection_index:
+        sound_requested.emit("menu_move")
+    _focus_upgrade_button(next_index)
+
+
+func _focus_upgrade_button(index: int) -> void:
+    if index < 0 or index >= upgrade_buttons.size() or not upgrade_buttons[index].visible:
+        return
+    upgrade_selection_index = index
+    upgrade_buttons[index].grab_focus()
+
+
+func _confirm_upgrade_selection() -> void:
+    if upgrade_selection_index < 0 or upgrade_selection_index >= upgrade_buttons.size():
+        return
+    var button := upgrade_buttons[upgrade_selection_index]
+    if button.visible:
+        _on_upgrade_button_pressed(button)
+
+
+func _on_upgrade_button_focused(index: int) -> void:
+    if upgrade_overlay.visible and index != upgrade_selection_index:
+        sound_requested.emit("menu_move")
+    upgrade_selection_index = index
+
+
+func _on_character_button_focused(index: int) -> void:
+    if character_overlay.visible and index != character_selection_index:
+        sound_requested.emit("menu_move")
+    character_selection_index = index
 
 
 func set_world(world: SimulationWorld) -> void:
@@ -144,7 +224,7 @@ func show_upgrade(
     subtitle_text: String = "Click a choice or press 1, 2, or 3"
 ) -> void:
     upgrade_title.text = title_text
-    upgrade_subtitle.text = subtitle_text
+    upgrade_subtitle.text = "%s — arrows select, Enter/Space confirm, or press 1/2/3" % subtitle_text
     for i in range(upgrade_buttons.size()):
         var button := upgrade_buttons[i]
         if i < options.size():
@@ -159,6 +239,8 @@ func show_upgrade(
         else:
             button.visible = false
     upgrade_overlay.visible = true
+    upgrade_selection_index = 0
+    _focus_upgrade_button(0)
 
 
 func hide_upgrade() -> void:
@@ -173,20 +255,30 @@ func show_death(summary: Dictionary) -> void:
         + "Enemies destroyed: %d\n" % summary.get("kills", 0)
         + "Peak base damage: %.1f\n" % summary.get("damage", 0.0)
         + "Weapons equipped: %d / %d\n\n" % [summary.get("weapon_slots", 1), summary.get("weapon_slot_cap", 4)]
-        + "Press R or Enter to restart"
+        + "R / Enter / Space: restart same operator\n"
+        + "Escape: choose a different operator"
     )
     death_overlay.visible = true
+    if death_restart_button != null:
+        death_restart_button.grab_focus()
 
 
 func show_character_select(current_character_id: String = "") -> void:
-    for button in character_buttons:
+    var current_index := 0
+    for index in range(character_buttons.size()):
+        var button := character_buttons[index]
         var character_id: String = button.get_meta("character_id", "")
         var is_current := character_id == current_character_id
+        if is_current:
+            current_index = index
         button.add_theme_color_override(
             "font_color",
             Color(0.48, 0.92, 1.0) if is_current else Color(0.88, 0.93, 1.0)
         )
     character_overlay.visible = true
+    character_selection_index = current_index
+    if not character_buttons.is_empty():
+        character_buttons[current_index].grab_focus()
 
 
 func hide_character_select() -> void:
@@ -202,7 +294,7 @@ func reset_display() -> void:
 
 
 func show_boss_notice() -> void:
-    boss_notice.text = "BOSS DETECTED — marked on minimap"
+    boss_notice.text = "HEAVY SIGNAL DETECTED — TRACKING ON RADAR"
     boss_notice_time = 2.5
     boss_notice.modulate.a = 1.0
     boss_notice.visible = true
@@ -223,7 +315,7 @@ func _on_character_button_pressed(button: Button) -> void:
 
 
 func _on_restart_pressed() -> void:
-    restart_requested.emit()
+    restart_requested.emit(false)
 
 
 func _build_interface() -> void:
@@ -232,24 +324,33 @@ func _build_interface() -> void:
     root.mouse_filter = Control.MOUSE_FILTER_IGNORE
     add_child(root)
 
-    var top_back := ColorRect.new()
+    var top_back := Panel.new()
     top_back.position = Vector2(18.0, 18.0)
     top_back.size = Vector2(430.0, 152.0)
-    top_back.color = Color(0.01, 0.02, 0.035, 0.82)
+    top_back.add_theme_stylebox_override("panel", _make_panel_style(UI_PANEL, UI_BORDER, 2, 7))
     top_back.mouse_filter = Control.MOUSE_FILTER_IGNORE
     root.add_child(top_back)
+
+    var top_accent := ColorRect.new()
+    top_accent.position = Vector2(18.0, 18.0)
+    top_accent.size = Vector2(8.0, 152.0)
+    top_accent.color = UI_CYAN
+    top_accent.mouse_filter = Control.MOUSE_FILTER_IGNORE
+    root.add_child(top_accent)
 
     health_bar = ProgressBar.new()
     health_bar.position = Vector2(32.0, 32.0)
     health_bar.size = Vector2(400.0, 24.0)
     health_bar.show_percentage = false
+    health_bar.add_theme_stylebox_override("background", _make_panel_style(Color("0b151b"), Color("1c3d47"), 1, 3))
+    health_bar.add_theme_stylebox_override("fill", _make_panel_style(UI_CYAN, UI_TEAL, 1, 3))
     root.add_child(health_bar)
 
     health_label = Label.new()
     health_label.position = Vector2(42.0, 33.0)
     health_label.size = Vector2(380.0, 24.0)
     health_label.add_theme_font_size_override("font_size", 15)
-    health_label.add_theme_color_override("font_color", Color.WHITE)
+    health_label.add_theme_color_override("font_color", UI_TEXT)
     health_label.add_theme_constant_override("outline_size", 5)
     health_label.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 0.9))
     root.add_child(health_label)
@@ -258,7 +359,7 @@ func _build_interface() -> void:
     stats_label.position = Vector2(32.0, 64.0)
     stats_label.size = Vector2(270.0, 100.0)
     stats_label.add_theme_font_size_override("font_size", 15)
-    stats_label.add_theme_color_override("font_color", Color(0.82, 0.91, 1.0))
+    stats_label.add_theme_color_override("font_color", UI_TEXT)
     root.add_child(stats_label)
 
     build_label = Label.new()
@@ -266,7 +367,7 @@ func _build_interface() -> void:
     build_label.size = Vector2(180.0, 100.0)
     build_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
     build_label.add_theme_font_size_override("font_size", 14)
-    build_label.add_theme_color_override("font_color", Color(0.75, 0.86, 0.95))
+    build_label.add_theme_color_override("font_color", Color("a8c0c8"))
     root.add_child(build_label)
 
     surge_label = Label.new()
@@ -274,7 +375,7 @@ func _build_interface() -> void:
     surge_label.size = Vector2(260.0, 30.0)
     surge_label.text = "SPAWN SURGE"
     surge_label.add_theme_font_size_override("font_size", 18)
-    surge_label.add_theme_color_override("font_color", Color(1.0, 0.72, 0.22))
+    surge_label.add_theme_color_override("font_color", UI_ORANGE)
     root.add_child(surge_label)
 
     minimap = BossMinimap.new()
@@ -288,7 +389,7 @@ func _build_interface() -> void:
     minimap_label.text = "BOSS RADAR"
     minimap_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
     minimap_label.add_theme_font_size_override("font_size", 13)
-    minimap_label.add_theme_color_override("font_color", Color(0.60, 0.76, 0.88))
+    minimap_label.add_theme_color_override("font_color", UI_CYAN)
     root.add_child(minimap_label)
 
     var controls := Label.new()
@@ -296,7 +397,7 @@ func _build_interface() -> void:
     controls.size = Vector2(620.0, 28.0)
     controls.text = "MOVE: WASD / ARROWS     T: CLOSEST / STRONGEST TARGET     ESC: QUIT"
     controls.add_theme_font_size_override("font_size", 14)
-    controls.add_theme_color_override("font_color", Color(0.52, 0.64, 0.75))
+    controls.add_theme_color_override("font_color", UI_MUTED)
     root.add_child(controls)
 
     boss_notice = Label.new()
@@ -304,7 +405,7 @@ func _build_interface() -> void:
     boss_notice.size = Vector2(500.0, 50.0)
     boss_notice.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
     boss_notice.add_theme_font_size_override("font_size", 24)
-    boss_notice.add_theme_color_override("font_color", Color(1.0, 0.30, 0.32))
+    boss_notice.add_theme_color_override("font_color", UI_ORANGE)
     boss_notice.add_theme_constant_override("outline_size", 8)
     boss_notice.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 0.95))
     boss_notice.visible = false
@@ -318,7 +419,7 @@ func _build_interface() -> void:
 func _build_upgrade_overlay() -> void:
     upgrade_overlay = ColorRect.new()
     upgrade_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-    upgrade_overlay.color = Color(0.0, 0.0, 0.0, 0.72)
+    upgrade_overlay.color = Color(0.01, 0.03, 0.04, 0.82)
     upgrade_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
     upgrade_overlay.visible = false
     root.add_child(upgrade_overlay)
@@ -332,6 +433,7 @@ func _build_upgrade_overlay() -> void:
     panel.offset_top = -210.0
     panel.offset_right = 390.0
     panel.offset_bottom = 210.0
+    panel.add_theme_stylebox_override("panel", _make_panel_style(UI_PANEL, UI_BORDER, 2, 9))
     upgrade_overlay.add_child(panel)
 
     var layout := VBoxContainer.new()
@@ -342,11 +444,11 @@ func _build_upgrade_overlay() -> void:
     upgrade_title.text = "LEVEL UP"
     upgrade_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
     upgrade_title.add_theme_font_size_override("font_size", 34)
-    upgrade_title.add_theme_color_override("font_color", Color(0.48, 0.92, 1.0))
+    upgrade_title.add_theme_color_override("font_color", UI_CYAN)
     layout.add_child(upgrade_title)
 
     upgrade_subtitle = Label.new()
-    upgrade_subtitle.text = "Click a choice or press 1, 2, or 3"
+    upgrade_subtitle.text = "Arrows select, Enter/Space confirm, or press 1/2/3"
     upgrade_subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
     upgrade_subtitle.add_theme_font_size_override("font_size", 18)
     layout.add_child(upgrade_subtitle)
@@ -355,7 +457,10 @@ func _build_upgrade_overlay() -> void:
         var button := Button.new()
         button.custom_minimum_size = Vector2(730.0, 82.0)
         button.add_theme_font_size_override("font_size", 19)
+        button.focus_mode = Control.FOCUS_ALL
+        _style_button(button)
         button.pressed.connect(_on_upgrade_button_pressed.bind(button))
+        button.focus_entered.connect(_on_upgrade_button_focused.bind(i))
         layout.add_child(button)
         upgrade_buttons.append(button)
 
@@ -363,7 +468,7 @@ func _build_upgrade_overlay() -> void:
 func _build_character_overlay() -> void:
     character_overlay = ColorRect.new()
     character_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-    character_overlay.color = Color(0.0, 0.0, 0.0, 0.86)
+    character_overlay.color = Color(0.01, 0.025, 0.035, 0.90)
     character_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
     character_overlay.visible = false
     root.add_child(character_overlay)
@@ -377,6 +482,7 @@ func _build_character_overlay() -> void:
     panel.offset_top = -320.0
     panel.offset_right = 430.0
     panel.offset_bottom = 320.0
+    panel.add_theme_stylebox_override("panel", _make_panel_style(UI_PANEL, UI_BORDER, 2, 9))
     character_overlay.add_child(panel)
 
     var layout := VBoxContainer.new()
@@ -387,7 +493,7 @@ func _build_character_overlay() -> void:
     title.text = "SELECT OPERATOR"
     title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
     title.add_theme_font_size_override("font_size", 32)
-    title.add_theme_color_override("font_color", Color(0.48, 0.92, 1.0))
+    title.add_theme_color_override("font_color", UI_CYAN)
     layout.add_child(title)
 
     var subtitle := Label.new()
@@ -403,6 +509,8 @@ func _build_character_overlay() -> void:
         button.custom_minimum_size = Vector2(820.0, 72.0)
         button.add_theme_font_size_override("font_size", 17)
         button.set_meta("character_id", character_id)
+        button.focus_mode = Control.FOCUS_ALL
+        _style_button(button)
         var starting_weapon := str(data.get("weapon", ""))
         var loadout := "Needle"
         if not starting_weapon.is_empty():
@@ -418,6 +526,7 @@ func _build_character_overlay() -> void:
             loadout,
         ]
         button.pressed.connect(_on_character_button_pressed.bind(button))
+        button.focus_entered.connect(_on_character_button_focused.bind(i))
         layout.add_child(button)
         character_buttons.append(button)
 
@@ -425,7 +534,7 @@ func _build_character_overlay() -> void:
 func _build_death_overlay() -> void:
     death_overlay = ColorRect.new()
     death_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-    death_overlay.color = Color(0.0, 0.0, 0.0, 0.80)
+    death_overlay.color = Color(0.01, 0.025, 0.035, 0.88)
     death_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
     death_overlay.visible = false
     root.add_child(death_overlay)
@@ -439,6 +548,7 @@ func _build_death_overlay() -> void:
     panel.offset_top = -190.0
     panel.offset_right = 260.0
     panel.offset_bottom = 190.0
+    panel.add_theme_stylebox_override("panel", _make_panel_style(UI_PANEL, UI_RED, 2, 9))
     death_overlay.add_child(panel)
 
     var layout := VBoxContainer.new()
@@ -449,15 +559,64 @@ func _build_death_overlay() -> void:
     death_summary = Label.new()
     death_summary.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
     death_summary.add_theme_font_size_override("font_size", 22)
-    death_summary.add_theme_color_override("font_color", Color(0.90, 0.94, 1.0))
+    death_summary.add_theme_color_override("font_color", UI_TEXT)
     layout.add_child(death_summary)
 
-    var restart_button := Button.new()
-    restart_button.text = "Restart"
-    restart_button.custom_minimum_size = Vector2(300.0, 54.0)
-    restart_button.add_theme_font_size_override("font_size", 21)
-    restart_button.pressed.connect(_on_restart_pressed)
-    layout.add_child(restart_button)
+    death_restart_button = Button.new()
+    death_restart_button.text = "Restart same operator"
+    death_restart_button.custom_minimum_size = Vector2(300.0, 54.0)
+    death_restart_button.add_theme_font_size_override("font_size", 21)
+    death_restart_button.focus_mode = Control.FOCUS_ALL
+    _style_button(death_restart_button, UI_ORANGE)
+    death_restart_button.pressed.connect(_on_restart_pressed)
+    layout.add_child(death_restart_button)
+
+
+func _make_panel_style(
+    fill: Color,
+    border: Color,
+    border_width: int = 1,
+    corner_radius: int = 4
+) -> StyleBoxFlat:
+    var style := StyleBoxFlat.new()
+    style.bg_color = fill
+    style.border_color = border
+    style.border_width_left = border_width
+    style.border_width_top = border_width
+    style.border_width_right = border_width
+    style.border_width_bottom = border_width
+    style.corner_radius_top_left = corner_radius
+    style.corner_radius_top_right = corner_radius
+    style.corner_radius_bottom_left = corner_radius
+    style.corner_radius_bottom_right = corner_radius
+    style.content_margin_left = 12.0
+    style.content_margin_right = 12.0
+    style.content_margin_top = 8.0
+    style.content_margin_bottom = 8.0
+    return style
+
+
+func _style_button(button: Button, accent: Color = UI_CYAN) -> void:
+    button.add_theme_stylebox_override(
+        "normal",
+        _make_panel_style(UI_PANEL_ALT, Color(accent, 0.42), 1, 5)
+    )
+    button.add_theme_stylebox_override(
+        "hover",
+        _make_panel_style(Color(0.07, 0.16, 0.19, 0.98), Color(accent, 0.82), 2, 5)
+    )
+    button.add_theme_stylebox_override(
+        "pressed",
+        _make_panel_style(Color(0.035, 0.11, 0.14, 1.0), accent, 2, 5)
+    )
+    button.add_theme_stylebox_override(
+        "focus",
+        _make_panel_style(Color(0.04, 0.13, 0.16, 0.36), accent, 3, 5)
+    )
+    button.add_theme_color_override("font_color", UI_TEXT)
+    button.add_theme_color_override("font_hover_color", Color.WHITE)
+    button.add_theme_color_override("font_focus_color", Color.WHITE)
+    button.add_theme_color_override("font_pressed_color", Color.WHITE)
 
 
 func _format_time(seconds_value: float) -> String:

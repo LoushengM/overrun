@@ -12,6 +12,18 @@ const SPRITE_ATLAS_PATH := "res://assets/robots.png"
 const SPRITE_ATLAS_COLUMNS := 4
 const SPRITE_ATLAS_ROWS := 2
 const SPRITE_FRAME_COUNT := SPRITE_ATLAS_COLUMNS * SPRITE_ATLAS_ROWS
+const PROJECTILE_ATLAS_COLUMNS := 3
+
+const COLOR_VOID := Color("071016")
+const COLOR_FLOOR := Color("101a21")
+const COLOR_PANEL := Color("18252d")
+const COLOR_STEEL_DARK := Color("263944")
+const COLOR_STEEL := Color("6f818b")
+const COLOR_STEEL_LIT := Color("d2e0e5")
+const COLOR_CYAN := Color("12d9f2")
+const COLOR_TEAL := Color("3bf2cf")
+const COLOR_ORANGE := Color("f3942d")
+const COLOR_RED := Color("ff4d3d")
 
 enum EnemyKind { NORMAL, BOSS }
 enum EnemyArchetype { GRUNT, SWARMER, SHIELDED, RANGED, SPLITTER, ELITE }
@@ -36,6 +48,7 @@ var xp_required := 8
 
 var player_position := Vector2.ZERO
 var player_move_direction := Vector2.ZERO
+var player_facing := Vector2.RIGHT
 var player_health := GameConfig.PLAYER_MAX_HEALTH
 var player_max_health := GameConfig.PLAYER_MAX_HEALTH
 var player_armor := GameConfig.PLAYER_ARMOR
@@ -188,6 +201,8 @@ var grid_bucket_pool: Array = []
 var normal_enemy_multimesh: MultiMesh
 var projectile_multimesh: MultiMesh
 var circle_texture: Texture2D
+var floor_texture: Texture2D
+var projectile_texture: Texture2D
 var sprite_atlas_texture: Texture2D
 var enemy_sprite_material: ShaderMaterial
 
@@ -206,6 +221,7 @@ var golomb_cache: Array[int] = [0, 1]
 
 func _ready() -> void:
     process_mode = Node.PROCESS_MODE_PAUSABLE
+    texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
     rng.randomize()
     camera.enabled = true
     _setup_batched_rendering()
@@ -269,6 +285,7 @@ func reset_run() -> void:
 
     player_position = Vector2.ZERO
     player_move_direction = Vector2.ZERO
+    player_facing = Vector2.RIGHT
     player_health = GameConfig.PLAYER_MAX_HEALTH
     player_max_health = GameConfig.PLAYER_MAX_HEALTH
     player_armor = GameConfig.PLAYER_ARMOR
@@ -544,9 +561,25 @@ func _update_player(delta: float) -> void:
     if Input.is_key_pressed(KEY_S) or Input.is_key_pressed(KEY_DOWN):
         direction.y += 1.0
     player_move_direction = direction.normalized()
-    player_position = WorldSpace.wrap_position(
+    if player_move_direction != Vector2.ZERO:
+        player_facing = player_move_direction
+    _set_player_position(
         player_position + player_move_direction * player_move_speed * delta
     )
+
+
+# Camera smoothing operates in the flat coordinate plane, so a toroidal wrap
+# looks like a WORLD_SIZE-pixel teleport unless the smoothing state is rebased.
+# Snapping both the target and the current scroll position keeps the seam
+# visually continuous while simulation coordinates remain wrapped.
+func _set_player_position(unwrapped_position: Vector2) -> void:
+    var wrapped_position := WorldSpace.wrap_position(unwrapped_position)
+    var crossed_seam := not wrapped_position.is_equal_approx(unwrapped_position)
+    player_position = wrapped_position
+    if crossed_seam:
+        camera.position = player_position
+        camera.reset_smoothing()
+        camera.force_update_scroll()
 
 
 func _update_enemies(delta: float) -> void:
@@ -574,6 +607,7 @@ func _update_enemies(delta: float) -> void:
                 var previous_telegraph := enemy_boss_telegraph[i]
                 enemy_boss_telegraph[i] = maxf(0.0, previous_telegraph - delta)
                 if previous_telegraph > 0.0 and enemy_boss_telegraph[i] <= 0.0:
+                    _request_sound("boss_slam")
                     if distance_to_player <= float(GameConfig.BOSS_PHASE_SLAM_RADIUS[boss_phase]):
                         _apply_player_damage(enemy_damage[i], true)
             elif distance_to_player <= GameConfig.BOSS_ENGAGE_RANGE:
@@ -1179,6 +1213,7 @@ func _resolve_hits() -> void:
 
 func _process_deaths() -> void:
     var boss_defeated := false
+    var normal_defeated := false
     for i in range(enemy_health.size() - 1, -1, -1):
         if enemy_health[i] > 0.0:
             continue
@@ -1189,6 +1224,7 @@ func _process_deaths() -> void:
             pending_boss_rewards += 1
             boss_defeated = true
         else:
+            normal_defeated = true
             # Children are queued, not spawned inline: _remove_enemy swaps the
             # last element into slot i, so appending mid-loop would shuffle an
             # unvisited entity into an index the reverse walk has passed.
@@ -1198,6 +1234,8 @@ func _process_deaths() -> void:
                 _spawn_health_pickup(enemy_positions[i])
         _remove_enemy(i)
     _drain_pending_splits()
+    if normal_defeated:
+        _request_sound("enemy_destroy")
     if boss_defeated:
         _request_sound("boss_defeat")
 
@@ -1223,6 +1261,9 @@ func _spawn_enemy_shot(origin: Vector2, direction: Vector2, damage_value: float)
     enemy_shot_velocities.append(direction * GameConfig.ARCHETYPE_RANGED_SHOT_SPEED)
     enemy_shot_lifetimes.append(GameConfig.ARCHETYPE_RANGED_SHOT_LIFETIME)
     enemy_shot_damage.append(damage_value)
+    # The manager cooldown collapses simultaneous ranged volleys into a single
+    # quiet enemy-language cue instead of one voice per shooter.
+    _request_sound("enemy_ranged_fire")
 
 
 # Enemy shots only ever test against the player, so they skip the enemy grid
@@ -1302,6 +1343,7 @@ func _update_spawning(delta: float) -> void:
     elif surge_cooldown <= 0.0 and nearby_threat <= GameConfig.SURGE_ENTER_COUNT:
         surge_active = true
         surge_time = 0.0
+        _request_sound("surge_start")
 
     var minutes := _paced_minutes()
     var base_rate := GameConfig.GAME_PACE_MULTIPLIER * minf(
@@ -2282,6 +2324,8 @@ func _emit_stats() -> void:
 
 func _setup_batched_rendering() -> void:
     circle_texture = _make_circle_texture(32)
+    floor_texture = _make_floor_texture(192)
+    projectile_texture = _make_projectile_atlas_texture(48)
     sprite_atlas_texture = load(SPRITE_ATLAS_PATH) as Texture2D
     enemy_sprite_material = _make_atlas_material()
     material = enemy_sprite_material
@@ -2293,17 +2337,17 @@ func _setup_batched_rendering() -> void:
     normal_enemy_multimesh.instance_count = GameConfig.ENEMY_CAP
     normal_enemy_multimesh.visible_instance_count = 0
     var enemy_mesh := QuadMesh.new()
-    enemy_mesh.size = Vector2.ONE * (GameConfig.NORMAL_ENEMY_RADIUS * 2.0 + 4.0)
+    enemy_mesh.size = Vector2.ONE * 48.0
     normal_enemy_multimesh.mesh = enemy_mesh
 
     projectile_multimesh = MultiMesh.new()
     projectile_multimesh.transform_format = MultiMesh.TRANSFORM_2D
     projectile_multimesh.use_colors = true
+    projectile_multimesh.use_custom_data = true
     projectile_multimesh.instance_count = GameConfig.PROJECTILE_CAP
     projectile_multimesh.visible_instance_count = 0
     var projectile_mesh := QuadMesh.new()
-    var maximum_projectile_radius := maxf(GameConfig.NEEDLE_RADIUS, GameConfig.SNIPER_RADIUS)
-    projectile_mesh.size = Vector2.ONE * (maximum_projectile_radius * 2.0 + 4.0)
+    projectile_mesh.size = Vector2.ONE * 48.0
     projectile_multimesh.mesh = projectile_mesh
 
 
@@ -2312,23 +2356,33 @@ func _make_atlas_material() -> ShaderMaterial:
     shader.code = """shader_type canvas_item;
 
 void vertex() {
-	if (INSTANCE_CUSTOM.z > 0.0) {
-		UV = UV * INSTANCE_CUSTOM.zw + INSTANCE_CUSTOM.xy;
-	}
+    if (INSTANCE_CUSTOM.z > 0.0) {
+        UV = UV * INSTANCE_CUSTOM.zw + INSTANCE_CUSTOM.xy;
+    }
 }
 """
-    var material := ShaderMaterial.new()
-    material.shader = shader
-    return material
+    var atlas_material := ShaderMaterial.new()
+    atlas_material.shader = shader
+    return atlas_material
+
+
+func _atlas_custom_data(frame_index: int, columns: int, rows: int) -> Color:
+    var frame_count := columns * rows
+    var clamped := clampi(frame_index, 0, frame_count - 1)
+    var column := clamped % columns
+    @warning_ignore("integer_division")
+    var row := clamped / columns
+    var u_scale := 1.0 / float(columns)
+    var v_scale := 1.0 / float(rows)
+    return Color(float(column) * u_scale, float(row) * v_scale, u_scale, v_scale)
 
 
 func _sprite_frame_custom_data(frame_index: int) -> Color:
-    var clamped := clampi(frame_index, 0, SPRITE_FRAME_COUNT - 1)
-    var column := clamped % SPRITE_ATLAS_COLUMNS
-    var row := clamped / SPRITE_ATLAS_COLUMNS
-    var u_scale := 1.0 / float(SPRITE_ATLAS_COLUMNS)
-    var v_scale := 1.0 / float(SPRITE_ATLAS_ROWS)
-    return Color(float(column) * u_scale, float(row) * v_scale, u_scale, v_scale)
+    return _atlas_custom_data(frame_index, SPRITE_ATLAS_COLUMNS, SPRITE_ATLAS_ROWS)
+
+
+func _projectile_frame_custom_data(projectile_kind: int) -> Color:
+    return _atlas_custom_data(projectile_kind, PROJECTILE_ATLAS_COLUMNS, 1)
 
 
 func _make_circle_texture(size: int) -> Texture2D:
@@ -2344,9 +2398,124 @@ func _make_circle_texture(size: int) -> Texture2D:
     return ImageTexture.create_from_image(image)
 
 
+func _make_floor_texture(size: int) -> Texture2D:
+    var image := Image.create(size, size, false, Image.FORMAT_RGBA8)
+    image.fill(COLOR_FLOOR)
+
+    # Large panel seams first, then inset bevels and a sparse cyan circuit trace.
+    for coordinate in range(0, size, 48):
+        _image_line(image, Vector2i(coordinate, 0), Vector2i(coordinate, size - 1), 2, Color("0b141a"))
+        _image_line(image, Vector2i(0, coordinate), Vector2i(size - 1, coordinate), 2, Color("0b141a"))
+    for y in range(0, size, 48):
+        for x in range(0, size, 48):
+            var inset := Rect2i(x + 4, y + 4, 40, 40)
+            _image_rect_outline(image, inset, Color("1c2b33"), 1)
+            _image_line(image, Vector2i(x + 8, y + 4), Vector2i(x + 4, y + 8), 1, Color("33434c"))
+            _image_line(image, Vector2i(x + 40, y + 44), Vector2i(x + 44, y + 40), 1, Color("0b1116"))
+
+    # Hex/circuit motif. Repetition is broad enough that the floor does not read
+    # as a checkerboard when the camera zooms out.
+    for center in [Vector2i(24, 24), Vector2i(120, 72), Vector2i(72, 144), Vector2i(168, 168)]:
+        _image_hex_outline(image, center, 13, Color(0.05, 0.32, 0.38, 0.42))
+        _image_circle(image, center, 2, Color(0.10, 0.72, 0.78, 0.65))
+
+    # A small hazard panel gives the arena an industrial identity without
+    # overwhelming combat readability.
+    _image_rect(image, Rect2i(98, 6, 82, 15), Color("172129"))
+    for stripe_x in range(92, 188, 18):
+        _image_line(image, Vector2i(stripe_x, 20), Vector2i(stripe_x + 14, 6), 5, Color(0.70, 0.34, 0.08, 0.62))
+    return ImageTexture.create_from_image(image)
+
+
+func _make_projectile_atlas_texture(frame_size: int) -> Texture2D:
+    var image := Image.create(frame_size * PROJECTILE_ATLAS_COLUMNS, frame_size, false, Image.FORMAT_RGBA8)
+    image.fill(Color.TRANSPARENT)
+
+    # Needle: a narrow luminous dart, facing right in atlas space.
+    var needle_origin := Vector2i(0, 0)
+    _image_line_local(image, needle_origin, Vector2i(7, 24), Vector2i(39, 24), 7, Color(0.02, 0.78, 0.94, 0.22))
+    _image_line_local(image, needle_origin, Vector2i(10, 24), Vector2i(39, 24), 3, COLOR_CYAN)
+    _image_line_local(image, needle_origin, Vector2i(34, 24), Vector2i(42, 24), 2, Color.WHITE)
+    _image_line_local(image, needle_origin, Vector2i(8, 20), Vector2i(15, 24), 2, COLOR_TEAL)
+    _image_line_local(image, needle_origin, Vector2i(8, 28), Vector2i(15, 24), 2, COLOR_TEAL)
+
+    # Sniper: a heavier orange-backed penetrator with a white-hot cyan point.
+    var sniper_origin := Vector2i(frame_size, 0)
+    _image_line_local(image, sniper_origin, Vector2i(4, 24), Vector2i(43, 24), 10, Color(0.02, 0.78, 0.94, 0.18))
+    _image_line_local(image, sniper_origin, Vector2i(7, 24), Vector2i(38, 24), 6, COLOR_STEEL_DARK)
+    _image_line_local(image, sniper_origin, Vector2i(10, 24), Vector2i(36, 24), 4, COLOR_STEEL_LIT)
+    _image_rect_local(image, sniper_origin, Rect2i(9, 20, 7, 8), COLOR_ORANGE)
+    _image_line_local(image, sniper_origin, Vector2i(34, 24), Vector2i(44, 24), 3, COLOR_CYAN)
+    _image_circle_local(image, sniper_origin, Vector2i(42, 24), 2, Color.WHITE)
+
+    # Flak: a compact triangular shard. Rotation and spread happen in the batch.
+    var flak_origin := Vector2i(frame_size * 2, 0)
+    _image_line_local(image, flak_origin, Vector2i(13, 24), Vector2i(34, 24), 8, Color(0.96, 0.45, 0.12, 0.18))
+    _image_line_local(image, flak_origin, Vector2i(15, 20), Vector2i(36, 24), 4, COLOR_ORANGE)
+    _image_line_local(image, flak_origin, Vector2i(15, 28), Vector2i(36, 24), 4, COLOR_ORANGE)
+    _image_line_local(image, flak_origin, Vector2i(22, 24), Vector2i(38, 24), 2, Color.WHITE)
+    return ImageTexture.create_from_image(image)
+
+
+func _image_rect(image: Image, rect: Rect2i, color: Color) -> void:
+    for y in range(maxi(0, rect.position.y), mini(image.get_height(), rect.end.y)):
+        for x in range(maxi(0, rect.position.x), mini(image.get_width(), rect.end.x)):
+            image.set_pixel(x, y, color)
+
+
+func _image_rect_local(image: Image, origin: Vector2i, rect: Rect2i, color: Color) -> void:
+    _image_rect(image, Rect2i(origin + rect.position, rect.size), color)
+
+
+func _image_rect_outline(image: Image, rect: Rect2i, color: Color, width: int) -> void:
+    _image_rect(image, Rect2i(rect.position, Vector2i(rect.size.x, width)), color)
+    _image_rect(image, Rect2i(rect.position.x, rect.end.y - width, rect.size.x, width), color)
+    _image_rect(image, Rect2i(rect.position, Vector2i(width, rect.size.y)), color)
+    _image_rect(image, Rect2i(rect.end.x - width, rect.position.y, width, rect.size.y), color)
+
+
+func _image_circle(image: Image, center: Vector2i, radius: int, color: Color) -> void:
+    var radius_squared := radius * radius
+    for y in range(center.y - radius, center.y + radius + 1):
+        for x in range(center.x - radius, center.x + radius + 1):
+            if x < 0 or y < 0 or x >= image.get_width() or y >= image.get_height():
+                continue
+            var dx := x - center.x
+            var dy := y - center.y
+            if dx * dx + dy * dy <= radius_squared:
+                image.set_pixel(x, y, color)
+
+
+func _image_circle_local(image: Image, origin: Vector2i, center: Vector2i, radius: int, color: Color) -> void:
+    _image_circle(image, origin + center, radius, color)
+
+
+func _image_line(image: Image, start: Vector2i, finish: Vector2i, width: int, color: Color) -> void:
+    var delta := finish - start
+    var steps := maxi(absi(delta.x), absi(delta.y))
+    if steps <= 0:
+        _image_circle(image, start, maxi(1, width / 2), color)
+        return
+    for step in range(steps + 1):
+        var point := Vector2(start).lerp(Vector2(finish), float(step) / float(steps))
+        _image_circle(image, Vector2i(roundi(point.x), roundi(point.y)), maxi(1, width / 2), color)
+
+
+func _image_line_local(image: Image, origin: Vector2i, start: Vector2i, finish: Vector2i, width: int, color: Color) -> void:
+    _image_line(image, origin + start, origin + finish, width, color)
+
+
+func _image_hex_outline(image: Image, center: Vector2i, radius: int, color: Color) -> void:
+    var points: Array[Vector2i] = []
+    for point_index in range(6):
+        var angle := PI / 3.0 * float(point_index)
+        points.append(center + Vector2i(roundi(cos(angle) * radius), roundi(sin(angle) * radius)))
+    for point_index in range(points.size()):
+        _image_line(image, points[point_index], points[(point_index + 1) % points.size()], 1, color)
+
+
 func _projectile_visual_scale(radius: float) -> float:
-    var maximum_projectile_radius := maxf(GameConfig.NEEDLE_RADIUS, GameConfig.SNIPER_RADIUS)
-    return (radius * 2.0 + 4.0) / (maximum_projectile_radius * 2.0 + 4.0)
+    return clampf(radius / maxf(1.0, GameConfig.NEEDLE_RADIUS), 0.65, 1.65)
 
 
 func _update_render_batches() -> void:
@@ -2359,10 +2528,12 @@ func _update_render_batches() -> void:
     for i in range(enemy_positions.size()):
         if enemy_kinds[i] != EnemyKind.NORMAL or not _is_near_view(enemy_positions[i], enemy_half):
             continue
-        normal_enemy_multimesh.set_instance_transform_2d(
-            normal_count,
-            Transform2D(0.0, WorldSpace.nearest_image(player_position, enemy_positions[i]))
-        )
+        var enemy_transform := Transform2D.IDENTITY
+        var enemy_visual_scale := enemy_radii[i] / GameConfig.NORMAL_ENEMY_RADIUS
+        enemy_transform.x *= enemy_visual_scale
+        enemy_transform.y *= enemy_visual_scale
+        enemy_transform.origin = WorldSpace.nearest_image(player_position, enemy_positions[i])
+        normal_enemy_multimesh.set_instance_transform_2d(normal_count, enemy_transform)
         normal_enemy_multimesh.set_instance_color(normal_count, Color.WHITE)
         normal_enemy_multimesh.set_instance_custom_data(
             normal_count,
@@ -2378,18 +2549,25 @@ func _update_render_batches() -> void:
         if not _is_near_view(position, projectile_half):
             continue
         var visual_scale := _projectile_visual_scale(projectile_radii[projectile_index])
-        var projectile_transform := Transform2D.IDENTITY
-        projectile_transform.x *= visual_scale
-        projectile_transform.y *= visual_scale
-        projectile_transform.origin = position
-        projectile_multimesh.set_instance_transform_2d(projectile_count, projectile_transform)
-        var projectile_color := Color(0.55, 0.95, 1.0, 1.0)
-        match projectile_kinds[projectile_index]:
+        var projectile_kind := projectile_kinds[projectile_index]
+        var direction := projectile_velocities[projectile_index]
+        var projectile_transform := Transform2D(direction.angle(), position)
+        match projectile_kind:
             ProjectileKind.SNIPER:
-                projectile_color = Color(1.0, 0.78, 0.22, 1.0)
+                projectile_transform.x *= visual_scale * 1.25
+                projectile_transform.y *= visual_scale * 0.72
             ProjectileKind.FLAK:
-                projectile_color = Color(1.0, 0.55, 0.30, 1.0)
-        projectile_multimesh.set_instance_color(projectile_count, projectile_color)
+                projectile_transform.x *= visual_scale * 0.72
+                projectile_transform.y *= visual_scale * 0.72
+            _:
+                projectile_transform.x *= visual_scale
+                projectile_transform.y *= visual_scale * 0.58
+        projectile_multimesh.set_instance_transform_2d(projectile_count, projectile_transform)
+        projectile_multimesh.set_instance_color(projectile_count, Color.WHITE)
+        projectile_multimesh.set_instance_custom_data(
+            projectile_count,
+            _projectile_frame_custom_data(projectile_kind)
+        )
         projectile_count += 1
     projectile_multimesh.visible_instance_count = projectile_count
 
@@ -2403,20 +2581,17 @@ func _draw() -> void:
         if not _is_near_view(field_position, visible_half + Vector2(180.0, 180.0)):
             continue
         var life_fraction := clampf(field_lifetimes[field_index] / maxf(0.001, field_duration), 0.0, 1.0)
-        draw_circle(field_position, field_radii[field_index], Color(0.22, 0.72, 0.36, 0.10 + 0.10 * life_fraction))
-        draw_arc(field_position, field_radii[field_index], 0.0, TAU, 48, Color(0.34, 0.94, 0.50, 0.48), 3.0)
+        _draw_field_emitter(field_position, field_radii[field_index], life_fraction)
 
     for raw_pickup_position in pickup_positions:
         var position := WorldSpace.nearest_image(player_position, raw_pickup_position)
         if _is_near_view(position, visible_half):
-            draw_circle(position, 11.0, Color(0.25, 0.95, 0.45, 0.95))
-            draw_line(position + Vector2(-6.0, 0.0), position + Vector2(6.0, 0.0), Color.WHITE, 3.0)
-            draw_line(position + Vector2(0.0, -6.0), position + Vector2(0.0, 6.0), Color.WHITE, 3.0)
+            _draw_repair_pickup(position)
 
-    for raw_shot_position in enemy_shot_positions:
-        var shot_position := WorldSpace.nearest_image(player_position, raw_shot_position)
+    for shot_index in range(enemy_shot_positions.size()):
+        var shot_position := WorldSpace.nearest_image(player_position, enemy_shot_positions[shot_index])
         if _is_near_view(shot_position, visible_half):
-            draw_circle(shot_position, GameConfig.ARCHETYPE_RANGED_SHOT_RADIUS, Color(1.0, 0.35, 0.25, 0.95))
+            _draw_enemy_bolt(shot_position, enemy_shot_velocities[shot_index])
 
     for blast_index in range(detonator_blast_positions.size()):
         var blast_position := WorldSpace.nearest_image(player_position, detonator_blast_positions[blast_index])
@@ -2424,13 +2599,12 @@ func _draw() -> void:
             continue
         var blast_fraction := 1.0 - detonator_blast_timers[blast_index] / GameConfig.DETONATOR_VISUAL_DURATION
         var blast_radius := detonator_blast_radii[blast_index] * clampf(0.45 + 0.55 * blast_fraction, 0.0, 1.0)
-        draw_circle(blast_position, blast_radius, Color(1.0, 0.62, 0.20, 0.30 * (1.0 - blast_fraction)))
-        draw_arc(blast_position, blast_radius, 0.0, TAU, 48, Color(1.0, 0.82, 0.34, 1.0 - blast_fraction), 4.0)
+        _draw_detonator_blast(blast_position, blast_radius, blast_fraction)
 
     for shell_index in range(detonator_shell_positions.size()):
         var shell_position := WorldSpace.nearest_image(player_position, detonator_shell_positions[shell_index])
         if _is_near_view(shell_position, visible_half):
-            draw_circle(shell_position, GameConfig.DETONATOR_RADIUS, Color(1.0, 0.72, 0.26, 0.95))
+            _draw_detonator_shell(shell_position, detonator_shell_velocities[shell_index])
 
     if normal_enemy_multimesh != null and sprite_atlas_texture != null:
         draw_multimesh(normal_enemy_multimesh, sprite_atlas_texture)
@@ -2438,107 +2612,320 @@ func _draw() -> void:
         draw_multimesh(normal_enemy_multimesh, circle_texture)
 
     for i in range(enemy_positions.size()):
+        if enemy_kinds[i] != EnemyKind.BOSS:
+            continue
         var position := WorldSpace.nearest_image(player_position, enemy_positions[i])
-        if not _is_near_view(position, visible_half + Vector2(100.0, 100.0)):
-            continue
-        if enemy_kinds[i] == EnemyKind.BOSS:
-            draw_circle(position, enemy_radii[i] + 7.0, Color(0.22, 0.02, 0.08, 0.95))
-            draw_circle(position, enemy_radii[i], Color(0.88, 0.12, 0.26, 1.0))
-            draw_circle(position, 15.0, Color(1.0, 0.62, 0.2, 1.0))
-            if enemy_boss_hit_protection_timer[i] > 0.0:
-                var protection_fraction := clampf(
-                    enemy_boss_hit_protection_timer[i] / GameConfig.BOSS_HIT_PROTECTION_DURATION,
-                    0.0,
-                    1.0
-                )
-                draw_arc(
-                    position,
-                    enemy_radii[i] + 12.0,
-                    0.0,
-                    TAU,
-                    48,
-                    Color(1.0, 0.72, 0.18, 0.35 + 0.65 * protection_fraction),
-                    5.0
-                )
-            var health_fraction := clampf(enemy_health[i] / enemy_max_health[i], 0.0, 1.0)
-            draw_rect(Rect2(position + Vector2(-48.0, -58.0), Vector2(96.0, 7.0)), Color(0.08, 0.08, 0.10, 0.9), true)
-            draw_rect(Rect2(position + Vector2(-48.0, -58.0), Vector2(96.0 * health_fraction, 7.0)), Color(0.95, 0.22, 0.28, 1.0), true)
-            if enemy_boss_telegraph[i] > 0.0:
-                # The telegraph ring has to match the radius the slam will
-                # actually check, or a later phase kills outside the warning.
-                var slam_radius := float(GameConfig.BOSS_PHASE_SLAM_RADIUS[_boss_phase(i)])
-                var pulse := 0.45 + 0.35 * sin(Time.get_ticks_msec() * 0.018)
-                draw_circle(position, slam_radius, Color(1.0, 0.12, 0.08, pulse * 0.18))
-                draw_arc(position, slam_radius, 0.0, TAU, 80, Color(1.0, 0.24, 0.12, pulse), 5.0)
-        else:
-            continue
+        if _is_near_view(position, visible_half + Vector2(130.0, 130.0)):
+            _draw_boss_robot(i, position)
 
-    if projectile_multimesh != null and circle_texture != null:
+    if projectile_multimesh != null and projectile_texture != null:
+        draw_multimesh(projectile_multimesh, projectile_texture)
+    elif projectile_multimesh != null and circle_texture != null:
         draw_multimesh(projectile_multimesh, circle_texture)
 
     for orbital_index in range(orbital_positions.size()):
         var orbital_position := WorldSpace.nearest_image(player_position, orbital_positions[orbital_index])
-        if not _is_near_view(orbital_position, visible_half):
-            continue
-        draw_circle(orbital_position, orbital_hit_radius, Color(0.45, 0.85, 1.0, 0.85))
-        draw_arc(orbital_position, orbital_hit_radius, 0.0, TAU, 20, Color(0.85, 0.97, 1.0, 0.95), 2.0)
+        if _is_near_view(orbital_position, visible_half):
+            _draw_orbital_drone(orbital_position, orbital_index)
 
     if chain_visual_timer > 0.0 and chain_visual_points.size() > 1:
         var chain_fade := chain_visual_timer / GameConfig.CHAIN_VISUAL_DURATION
-        var chain_color := Color(0.65, 0.85, 1.0, chain_fade)
         for link_index in range(chain_visual_points.size() - 1):
             var link_start := WorldSpace.nearest_image(player_position, chain_visual_points[link_index])
             var link_end := WorldSpace.nearest_image(link_start, chain_visual_points[link_index + 1])
-            draw_line(link_start, link_end, chain_color, 3.0)
+            _draw_chain_link(link_start, link_end, link_index, chain_fade)
 
     if aura_visual_timer > 0.0:
         var aura_fraction := 1.0 - aura_visual_timer / GameConfig.AURA_VISUAL_DURATION
-        draw_arc(
-            player_position,
-            aura_radius * clampf(0.35 + 0.65 * aura_fraction, 0.0, 1.0),
-            0.0,
-            TAU,
-            72,
-            Color(0.72, 0.36, 1.0, 1.0 - aura_fraction),
-            7.0
-        )
+        var aura_visual_radius := aura_radius * clampf(0.35 + 0.65 * aura_fraction, 0.0, 1.0)
+        draw_circle(player_position, aura_visual_radius, Color(0.02, 0.72, 0.90, 0.08 * (1.0 - aura_fraction)))
+        draw_arc(player_position, aura_visual_radius, 0.0, TAU, 72, Color(COLOR_CYAN, 0.82 * (1.0 - aura_fraction)), 5.0)
+        draw_arc(player_position, aura_visual_radius - 10.0, 0.0, TAU, 72, Color(COLOR_TEAL, 0.35 * (1.0 - aura_fraction)), 2.0)
 
     if player_one_shot_protection_timer > 0.0:
         var protection_fraction := player_one_shot_protection_timer / GameConfig.PLAYER_ONE_SHOT_PROTECTION_VISUAL_DURATION
-        draw_arc(
-            player_position,
-            GameConfig.PLAYER_RADIUS + 13.0 + 5.0 * (1.0 - protection_fraction),
-            0.0,
-            TAU,
-            48,
-            Color(1.0, 0.88, 0.25, protection_fraction),
-            5.0
+        var shield_radius := GameConfig.PLAYER_RADIUS + 15.0 + 5.0 * (1.0 - protection_fraction)
+        draw_circle(player_position, shield_radius, Color(COLOR_ORANGE, protection_fraction * 0.08))
+        draw_arc(player_position, shield_radius, 0.0, TAU, 48, Color(COLOR_ORANGE, protection_fraction), 4.0)
+
+    _draw_player_robot()
+
+
+func _draw_field_emitter(position: Vector2, radius: float, life_fraction: float) -> void:
+    var pulse := 0.5 + 0.5 * sin(Time.get_ticks_msec() * 0.006 + position.x * 0.01)
+    var zone_color := Color(COLOR_TEAL, 0.035 + 0.04 * life_fraction)
+    draw_circle(position, radius, zone_color)
+    draw_arc(position, radius, 0.0, TAU, 72, Color(COLOR_TEAL, 0.45 * life_fraction), 3.0)
+    draw_arc(position, radius * 0.72, 0.0, TAU, 60, Color(COLOR_CYAN, 0.16 + 0.10 * pulse), 2.0)
+
+    var hex_points := PackedVector2Array()
+    for point_index in range(6):
+        var angle := PI / 3.0 * float(point_index) + PI / 6.0
+        hex_points.append(position + Vector2.from_angle(angle) * 19.0)
+    draw_colored_polygon(hex_points, Color("20323b"))
+    draw_polyline(hex_points + PackedVector2Array([hex_points[0]]), Color(COLOR_STEEL_LIT, 0.75), 2.0)
+    draw_circle(position, 10.0, COLOR_STEEL_DARK)
+    draw_circle(position, 6.0 + pulse * 2.0, Color(COLOR_CYAN, 0.75))
+    draw_line(position + Vector2(0.0, -12.0), position + Vector2(0.0, -27.0 - pulse * 7.0), Color(COLOR_CYAN, 0.55), 3.0)
+
+
+func _draw_repair_pickup(position: Vector2) -> void:
+    var bob := sin(Time.get_ticks_msec() * 0.004 + position.x * 0.017) * 3.0
+    var center := position + Vector2(0.0, bob)
+    draw_circle(center + Vector2(0.0, 8.0), 13.0, Color(0.0, 0.0, 0.0, 0.30))
+    draw_set_transform(center, 0.0, Vector2.ONE)
+    draw_rect(Rect2(-9.0, -13.0, 18.0, 26.0), COLOR_STEEL_DARK, true)
+    draw_rect(Rect2(-7.0, -11.0, 14.0, 22.0), COLOR_STEEL, true)
+    draw_rect(Rect2(-6.0, -8.0, 12.0, 16.0), Color("123f48"), true)
+    draw_rect(Rect2(-2.0, -7.0, 4.0, 14.0), COLOR_TEAL, true)
+    draw_rect(Rect2(-6.0, -2.0, 12.0, 4.0), COLOR_TEAL, true)
+    draw_line(Vector2(-8.0, -10.0), Vector2(8.0, -10.0), COLOR_STEEL_LIT, 2.0)
+    draw_line(Vector2(-8.0, 10.0), Vector2(8.0, 10.0), COLOR_ORANGE, 2.0)
+    draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+
+func _draw_enemy_bolt(position: Vector2, velocity: Vector2) -> void:
+    var direction := velocity.normalized()
+    if direction == Vector2.ZERO:
+        direction = Vector2.RIGHT
+    var tail := position - direction * 15.0
+    draw_line(tail, position, Color(COLOR_RED, 0.20), 9.0)
+    draw_line(tail + direction * 3.0, position, COLOR_ORANGE, 4.0)
+    draw_circle(position, 4.0, Color.WHITE)
+
+
+func _draw_detonator_blast(position: Vector2, radius: float, blast_fraction: float) -> void:
+    var fade := clampf(1.0 - blast_fraction, 0.0, 1.0)
+    draw_circle(position, radius, Color(COLOR_ORANGE, 0.16 * fade))
+    draw_circle(position, radius * 0.46, Color(1.0, 0.82, 0.35, 0.23 * fade))
+    draw_arc(position, radius, 0.0, TAU, 72, Color(COLOR_ORANGE, fade), 5.0)
+    draw_arc(position, radius * 0.72, 0.0, TAU, 64, Color(1.0, 0.90, 0.62, 0.55 * fade), 2.0)
+    for spoke_index in range(12):
+        var angle := TAU * float(spoke_index) / 12.0 + blast_fraction * 0.6
+        var direction := Vector2.from_angle(angle)
+        draw_line(
+            position + direction * radius * 0.35,
+            position + direction * radius * (0.70 + 0.18 * float(spoke_index % 3)),
+            Color(COLOR_ORANGE, 0.75 * fade),
+            3.0
         )
 
+
+func _draw_detonator_shell(position: Vector2, velocity: Vector2) -> void:
+    var angle := velocity.angle()
+    draw_set_transform(position, angle, Vector2.ONE)
+    draw_line(Vector2(-17.0, 0.0), Vector2(-7.0, 0.0), Color(COLOR_CYAN, 0.35), 7.0)
+    draw_rect(Rect2(-8.0, -6.0, 18.0, 12.0), COLOR_STEEL_DARK, true)
+    draw_rect(Rect2(-5.0, -4.0, 13.0, 8.0), COLOR_STEEL, true)
+    draw_rect(Rect2(-5.0, -4.0, 4.0, 8.0), COLOR_ORANGE, true)
+    draw_colored_polygon(PackedVector2Array([Vector2(8.0, -4.0), Vector2(15.0, 0.0), Vector2(8.0, 4.0)]), COLOR_CYAN)
+    draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+
+func _draw_boss_robot(enemy_index: int, position: Vector2) -> void:
+    var phase := _boss_phase(enemy_index)
+    var phase_rotation := elapsed_time * (0.10 + 0.04 * float(phase))
+    draw_set_transform(position + Vector2(0.0, 12.0), 0.0, Vector2(1.35, 0.58))
+    draw_circle(Vector2.ZERO, enemy_radii[enemy_index] + 16.0, Color(0.0, 0.0, 0.0, 0.38))
+    draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+    for leg_index in range(8):
+        var angle := TAU * float(leg_index) / 8.0 + phase_rotation
+        var direction := Vector2.from_angle(angle)
+        var tangent := direction.orthogonal()
+        var hip := position + direction * 29.0
+        var knee := position + direction * 48.0 + tangent * (7.0 if leg_index % 2 == 0 else -7.0)
+        var foot := position + direction * 67.0
+        draw_line(hip, knee, Color("17242c"), 13.0)
+        draw_line(knee, foot, COLOR_STEEL_DARK, 10.0)
+        draw_circle(knee, 7.0, COLOR_STEEL)
+        draw_line(foot - tangent * 5.0, foot + tangent * 5.0, COLOR_STEEL_LIT, 5.0)
+
+    draw_circle(position, enemy_radii[enemy_index] + 10.0, Color("101b22"))
+    draw_circle(position, enemy_radii[enemy_index] + 4.0, COLOR_STEEL_DARK)
+    draw_circle(position, enemy_radii[enemy_index] - 2.0, COLOR_STEEL)
+    for plate_index in range(6):
+        var angle := TAU * float(plate_index) / 6.0 + phase_rotation * 0.45
+        var plate_center := position + Vector2.from_angle(angle) * 29.0
+        draw_circle(plate_center, 12.0, COLOR_STEEL_LIT)
+        draw_circle(plate_center, 8.0, COLOR_STEEL_DARK)
+        if plate_index % 2 == 0:
+            draw_line(plate_center - Vector2.from_angle(angle) * 7.0, plate_center + Vector2.from_angle(angle) * 7.0, COLOR_ORANGE, 3.0)
+
+    draw_circle(position, 22.0, Color("0a2028"))
+    draw_circle(position, 16.0, Color(COLOR_CYAN, 0.28))
+    draw_circle(position, 10.0, COLOR_CYAN)
+    draw_circle(position - Vector2(3.0, 3.0), 4.0, Color.WHITE)
+
+    # Twin weapon pods make the boss silhouette read as a machine rather than a
+    # generic large circle, while staying cheap enough for several bosses.
+    for side in [-1.0, 1.0]:
+        var pod_center := position + Vector2(0.0, side * 34.0)
+        draw_rect(Rect2(pod_center - Vector2(13.0, 7.0), Vector2(26.0, 14.0)), COLOR_STEEL_DARK, true)
+        draw_rect(Rect2(pod_center - Vector2(8.0, 4.0), Vector2(18.0, 8.0)), COLOR_STEEL_LIT, true)
+        draw_line(pod_center + Vector2(10.0, 0.0), pod_center + Vector2(25.0, 0.0), COLOR_STEEL, 6.0)
+        draw_line(pod_center + Vector2(21.0, 0.0), pod_center + Vector2(28.0, 0.0), COLOR_ORANGE, 3.0)
+
+    if enemy_boss_hit_protection_timer[enemy_index] > 0.0:
+        var protection_fraction := clampf(
+            enemy_boss_hit_protection_timer[enemy_index] / GameConfig.BOSS_HIT_PROTECTION_DURATION,
+            0.0,
+            1.0
+        )
+        draw_arc(position, enemy_radii[enemy_index] + 20.0, 0.0, TAU, 64, Color(COLOR_ORANGE, 0.35 + 0.65 * protection_fraction), 5.0)
+
+    var health_fraction := clampf(enemy_health[enemy_index] / enemy_max_health[enemy_index], 0.0, 1.0)
+    var bar_rect := Rect2(position + Vector2(-54.0, -73.0), Vector2(108.0, 8.0))
+    draw_rect(bar_rect, Color("071016"), true)
+    draw_rect(Rect2(bar_rect.position + Vector2(2.0, 2.0), Vector2(104.0 * health_fraction, 4.0)), COLOR_RED, true)
+    draw_rect(bar_rect, Color(COLOR_STEEL, 0.8), false, 2.0)
+
+    if enemy_boss_telegraph[enemy_index] > 0.0:
+        var slam_radius := float(GameConfig.BOSS_PHASE_SLAM_RADIUS[phase])
+        var pulse := 0.45 + 0.35 * sin(Time.get_ticks_msec() * 0.018)
+        draw_circle(position, slam_radius, Color(COLOR_RED, pulse * 0.13))
+        draw_arc(position, slam_radius, 0.0, TAU, 80, Color(COLOR_ORANGE, pulse), 5.0)
+        draw_arc(position, slam_radius - 12.0, 0.0, TAU, 80, Color(COLOR_RED, pulse * 0.5), 2.0)
+
+
+func _draw_orbital_drone(position: Vector2, orbital_index: int) -> void:
+    var rotation := elapsed_time * 4.0 + float(orbital_index)
+    draw_circle(position + Vector2(0.0, 5.0), orbital_hit_radius + 4.0, Color(0.0, 0.0, 0.0, 0.28))
+    draw_circle(position, orbital_hit_radius + 3.0, COLOR_STEEL_DARK)
+    draw_circle(position, orbital_hit_radius - 1.0, COLOR_STEEL)
+    for arm_index in range(4):
+        var direction := Vector2.from_angle(rotation + TAU * float(arm_index) / 4.0)
+        draw_line(position + direction * 5.0, position + direction * (orbital_hit_radius + 7.0), COLOR_STEEL_LIT, 4.0)
+        draw_circle(position + direction * (orbital_hit_radius + 7.0), 3.0, COLOR_CYAN)
+    draw_circle(position, 6.0, Color("092731"))
+    draw_circle(position, 3.5, COLOR_CYAN)
+
+
+func _draw_chain_link(start: Vector2, finish: Vector2, link_index: int, alpha: float) -> void:
+    var delta := finish - start
+    var distance := delta.length()
+    if distance <= 0.001:
+        return
+    var direction := delta / distance
+    var perpendicular := direction.orthogonal()
+    var points := PackedVector2Array([start])
+    var segment_count := clampi(ceili(distance / 34.0), 3, 10)
+    var time_phase := Time.get_ticks_msec() * 0.025 + float(link_index) * 1.7
+    for segment_index in range(1, segment_count):
+        var fraction := float(segment_index) / float(segment_count)
+        var jitter := sin(time_phase + float(segment_index) * 2.4) * (5.0 + 3.0 * float(segment_index % 2))
+        points.append(start + delta * fraction + perpendicular * jitter)
+    points.append(finish)
+    draw_polyline(points, Color(COLOR_CYAN, 0.22 * alpha), 8.0)
+    draw_polyline(points, Color(0.72, 0.95, 1.0, alpha), 3.0)
+
+
+func _player_shell_color() -> Color:
+    match selected_character:
+        "bulwark":
+            return Color("93a7b1")
+        "scout":
+            return Color("b8e8e6")
+        "gunner":
+            return Color("a9bcc8")
+        "warden":
+            return Color("8fc6b7")
+        "reaper":
+            return Color("b9a5bb")
+        _:
+            return COLOR_STEEL_LIT
+
+
+func _draw_player_robot() -> void:
     var player_flash := player_invulnerability_timer > 0.0 and int(Time.get_ticks_msec() / 55) % 2 == 0
-    var player_color := Color.WHITE if player_flash else Color(0.20, 0.82, 1.0, 1.0)
-    draw_circle(player_position, GameConfig.PLAYER_RADIUS + 5.0, Color(0.03, 0.12, 0.18, 0.95))
-    draw_circle(player_position, GameConfig.PLAYER_RADIUS, player_color)
-    draw_circle(player_position, 6.0, Color.WHITE)
+    var shell_color := Color.WHITE if player_flash else _player_shell_color()
+    var facing := player_facing
+    if facing == Vector2.ZERO:
+        facing = Vector2.RIGHT
+
+    draw_set_transform(player_position + Vector2(0.0, 8.0), 0.0, Vector2(1.25, 0.55))
+    draw_circle(Vector2.ZERO, GameConfig.PLAYER_RADIUS + 8.0, Color(0.0, 0.0, 0.0, 0.38))
+    draw_set_transform(player_position, facing.angle(), Vector2.ONE)
+
+    # Rear stabilizers and articulated limbs.
+    draw_line(Vector2(-8.0, -10.0), Vector2(-17.0, -20.0), COLOR_STEEL_DARK, 7.0)
+    draw_line(Vector2(-8.0, 10.0), Vector2(-17.0, 20.0), COLOR_STEEL_DARK, 7.0)
+    draw_circle(Vector2(-17.0, -20.0), 5.0, COLOR_STEEL)
+    draw_circle(Vector2(-17.0, 20.0), 5.0, COLOR_STEEL)
+    draw_line(Vector2(5.0, -12.0), Vector2(12.0, -19.0), COLOR_STEEL, 6.0)
+    draw_line(Vector2(5.0, 12.0), Vector2(12.0, 19.0), COLOR_STEEL, 6.0)
+
+    var hull := PackedVector2Array([
+        Vector2(-15.0, -13.0),
+        Vector2(8.0, -14.0),
+        Vector2(18.0, -7.0),
+        Vector2(20.0, 0.0),
+        Vector2(18.0, 7.0),
+        Vector2(8.0, 14.0),
+        Vector2(-15.0, 13.0),
+        Vector2(-20.0, 0.0),
+    ])
+    draw_colored_polygon(hull, COLOR_STEEL_DARK)
+    var inner_hull := PackedVector2Array([
+        Vector2(-11.0, -10.0),
+        Vector2(8.0, -11.0),
+        Vector2(15.0, -5.0),
+        Vector2(16.0, 0.0),
+        Vector2(15.0, 5.0),
+        Vector2(8.0, 11.0),
+        Vector2(-11.0, 10.0),
+        Vector2(-16.0, 0.0),
+    ])
+    draw_colored_polygon(inner_hull, shell_color)
+    draw_line(Vector2(-8.0, -8.0), Vector2(8.0, -8.0), Color.WHITE, 2.0)
+    draw_rect(Rect2(-13.0, -4.0, 7.0, 8.0), COLOR_ORANGE, true)
+
+    # Cyan reactor and forward optic/gun assembly.
+    draw_circle(Vector2(1.0, 0.0), 9.0, Color("0a2831"))
+    draw_circle(Vector2(1.0, 0.0), 6.0, Color(COLOR_CYAN, 0.42))
+    draw_circle(Vector2(1.0, 0.0), 3.5, COLOR_CYAN)
+    draw_line(Vector2(8.0, -6.0), Vector2(16.0, -3.0), COLOR_CYAN, 4.0)
+    draw_line(Vector2(14.0, 0.0), Vector2(29.0, 0.0), COLOR_STEEL_DARK, 8.0)
+    draw_line(Vector2(17.0, 0.0), Vector2(30.0, 0.0), shell_color, 4.0)
+    draw_circle(Vector2(31.0, 0.0), 3.0, COLOR_CYAN)
+    draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
 func _draw_background_grid() -> void:
     var half := GameConfig.VIEW_SIZE * 0.70 * _camera_view_scale()
     var bounds := Rect2(player_position - half, half * 2.0)
-    draw_rect(bounds, Color(0.025, 0.035, 0.055, 1.0), true)
-    var spacing := 96.0
-    var start_x := floorf(bounds.position.x / spacing) * spacing
-    var end_x := bounds.end.x
-    var start_y := floorf(bounds.position.y / spacing) * spacing
-    var end_y := bounds.end.y
+    draw_rect(bounds, COLOR_VOID, true)
+    if floor_texture != null:
+        draw_texture_rect(floor_texture, bounds, true, Color.WHITE)
+    else:
+        draw_rect(bounds, COLOR_FLOOR, true)
+
+    # Structural seams sit on a wider world-space cadence than the tiled texture.
+    # This prevents the arena from reading as wallpaper and helps motion tracking.
+    var major_spacing := 768.0
+    var start_x := floorf(bounds.position.x / major_spacing) * major_spacing
+    var start_y := floorf(bounds.position.y / major_spacing) * major_spacing
     var x := start_x
-    while x <= end_x:
-        draw_line(Vector2(x, bounds.position.y), Vector2(x, bounds.end.y), Color(0.08, 0.11, 0.16, 0.55), 1.0)
-        x += spacing
+    while x <= bounds.end.x:
+        draw_line(Vector2(x, bounds.position.y), Vector2(x, bounds.end.y), Color("071016"), 5.0)
+        draw_line(Vector2(x + 6.0, bounds.position.y), Vector2(x + 6.0, bounds.end.y), Color(0.12, 0.29, 0.34, 0.40), 1.0)
+        x += major_spacing
     var y := start_y
-    while y <= end_y:
-        draw_line(Vector2(bounds.position.x, y), Vector2(bounds.end.x, y), Color(0.08, 0.11, 0.16, 0.55), 1.0)
-        y += spacing
+    while y <= bounds.end.y:
+        draw_line(Vector2(bounds.position.x, y), Vector2(bounds.end.x, y), Color("071016"), 5.0)
+        draw_line(Vector2(bounds.position.x, y + 6.0), Vector2(bounds.end.x, y + 6.0), Color(0.12, 0.29, 0.34, 0.40), 1.0)
+        y += major_spacing
+
+    var node_spacing := 384.0
+    var node_x := floorf(bounds.position.x / node_spacing) * node_spacing
+    while node_x <= bounds.end.x:
+        var node_y := floorf(bounds.position.y / node_spacing) * node_spacing
+        while node_y <= bounds.end.y:
+            var node := Vector2(node_x, node_y)
+            draw_circle(node, 5.0, Color("0b151b"))
+            draw_circle(node, 2.0, Color(COLOR_CYAN, 0.42))
+            node_y += node_spacing
+        node_x += node_spacing
 
 
 func _is_near_view(position: Vector2, half_extent: Vector2) -> bool:

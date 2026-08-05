@@ -20,6 +20,7 @@ func _ready() -> void:
     hud.upgrade_selected.connect(_on_upgrade_selected)
     hud.character_selected.connect(_on_character_selected)
     hud.restart_requested.connect(_restart_run)
+    hud.sound_requested.connect(audio.play_cue)
     hud.set_world(world)
 
     var arguments := OS.get_cmdline_args()
@@ -45,7 +46,7 @@ func _open_character_select() -> void:
 
 
 func _on_character_selected(character_id: String) -> void:
-    audio.play_cue("upgrade_select")
+    audio.play_cue("character_select")
     world.select_character(character_id)
     world.reset_run()
     hud.reset_display()
@@ -58,20 +59,17 @@ func _unhandled_input(event: InputEvent) -> void:
     var key_event := event as InputEventKey
     if not key_event.pressed or key_event.echo:
         return
-    if key_event.keycode == KEY_T:
-        world.toggle_targeting_mode()
-        audio.play_cue("target_toggle")
-        get_viewport().set_input_as_handled()
+    match key_event.keycode:
+        KEY_T:
+            world.toggle_targeting_mode()
+            audio.play_cue("target_toggle")
+            get_viewport().set_input_as_handled()
+        KEY_ESCAPE:
+            get_tree().quit()
+            get_viewport().set_input_as_handled()
 
 
 func _process(_delta: float) -> void:
-    if Input.is_key_pressed(KEY_ESCAPE):
-        get_tree().quit()
-        return
-
-    if not world.is_running and (Input.is_key_pressed(KEY_R) or Input.is_key_pressed(KEY_ENTER)):
-        _restart_run()
-
     if benchmark_mode and world.elapsed_time >= 10.0:
         print("BENCHMARK_RESULT ", JSON.stringify(world.get_stats_snapshot()))
         get_tree().quit()
@@ -113,12 +111,15 @@ func _on_run_ended(summary: Dictionary) -> void:
     hud.show_death(summary)
 
 
-func _restart_run() -> void:
+func _restart_run(change_character: bool = false) -> void:
     audio.stop_all()
     get_tree().paused = false
     hud.reset_display()
     world.reset_run()
     if benchmark_mode:
         world.enable_benchmark(benchmark_expanded)
-    else:
+    elif change_character:
+        audio.play_cue("menu_back")
         _open_character_select()
+    else:
+        audio.play_cue("restart")
