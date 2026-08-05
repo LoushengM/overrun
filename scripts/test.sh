@@ -63,6 +63,36 @@ if data["fps"] < 60.0:
 print("CROWD_BENCHMARK_OK %s enemies at %s fps" % (data["enemies"], data["fps"]))
 '
 
+# The dummy renderer cannot detect a CanvasItem draw-call explosion. On Linux,
+# exercise the visual caps through a real OpenGL context under Xvfb and gate on
+# both sustained frame rate and draw-call count. Other platforms still run the
+# deterministic batching assertions in regression_test.gd.
+if command -v xvfb-run >/dev/null 2>&1; then
+  render_output="$(xvfb-run -a -s '-screen 0 1280x720x24' \
+    "$GODOT" --path . --audio-driver Dummy --disable-vsync \
+    --script tests/render_benchmark.gd 2>&1)"
+  printf '%s\n' "$render_output"
+  if grep -qE "SCRIPT ERROR|Assertion failed" <<<"$render_output"; then
+    echo "Failure in tests/render_benchmark.gd" >&2
+    exit 1
+  fi
+  printf '%s' "$render_output" | python3 -c '
+import json, re, sys
+blob = sys.stdin.read()
+match = re.search(r"RENDER_BENCHMARK_RESULT\s+(\{.*\})", blob)
+if not match:
+    sys.exit("render benchmark produced no result line")
+data = json.loads(match.group(1))
+if data["fps"] < 60.0:
+    sys.exit("render benchmark below 60 fps: %s" % data)
+if data["draw_calls"] > 250:
+    sys.exit("render benchmark exceeded 250 draw calls: %s" % data)
+print("RENDER_BENCHMARK_OK %.1f fps at %d draw calls" % (data["fps"], data["draw_calls"]))
+'
+else
+  echo "RENDER_BENCHMARK_SKIPPED xvfb-run not available"
+fi
+
 benchmark_output="$($GODOT --headless --path . -- --benchmark)"
 printf '%s\n' "$benchmark_output"
 grep -q "BENCHMARK_RESULT" <<<"$benchmark_output"
