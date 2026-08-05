@@ -136,6 +136,8 @@ var flak_spread := deg_to_rad(GameConfig.FLAK_SPREAD_DEGREES)
 var flak_range := GameConfig.FLAK_RANGE
 var flak_lifetime := GameConfig.FLAK_LIFETIME
 var flak_timer := 0.25
+var flak_visual_timer := 0.0
+var flak_visual_direction := Vector2.RIGHT
 
 var orbital_count := GameConfig.ORBITAL_COUNT
 var orbital_radius := GameConfig.ORBITAL_RADIUS
@@ -396,6 +398,8 @@ func reset_run() -> void:
     flak_range = GameConfig.FLAK_RANGE
     flak_lifetime = GameConfig.FLAK_LIFETIME
     flak_timer = 0.25
+    flak_visual_timer = 0.0
+    flak_visual_direction = Vector2.RIGHT
 
     orbital_count = GameConfig.ORBITAL_COUNT
     orbital_radius = GameConfig.ORBITAL_RADIUS
@@ -761,6 +765,7 @@ func _update_enemies(delta: float) -> void:
 
 func _update_weapons(delta: float) -> void:
     aura_visual_timer = maxf(0.0, aura_visual_timer - delta)
+    flak_visual_timer = maxf(0.0, flak_visual_timer - delta)
     _update_needle(delta)
     if _has_weapon("sniper"):
         _update_sniper(delta)
@@ -1025,6 +1030,8 @@ func _update_flak(delta: float) -> void:
             ProjectileKind.FLAK
         )
     if projectile_positions.size() > projectile_count_before:
+        flak_visual_direction = base_direction
+        flak_visual_timer = GameConfig.FLAK_VISUAL_DURATION
         _request_sound("flak_fire")
     flak_timer += maxf(0.15, flak_cooldown)
 
@@ -2694,6 +2701,8 @@ func get_stats_snapshot() -> Dictionary:
         "pierce": weapon_pierce,
         "needle_range": weapon_range,
         "sniper_radius": sniper_radius,
+        "sniper_size_multiplier": sniper_radius / GameConfig.SNIPER_RADIUS,
+        "flak_spread_degrees": rad_to_deg(flak_spread),
         "aura_echoes": aura_echoes,
         "move_speed": player_move_speed,
         "camera_zoom": camera.zoom.x,
@@ -3220,7 +3229,15 @@ func _image_hex_outline(image: Image, center: Vector2i, radius: int, color: Colo
         _image_line(image, points[point_index], points[(point_index + 1) % points.size()], 1, color)
 
 
-func _projectile_visual_scale(radius: float) -> float:
+func _projectile_visual_scale(radius: float, projectile_kind: int = ProjectileKind.NEEDLE) -> float:
+    if projectile_kind == ProjectileKind.SNIPER:
+        # Heavy Caliber used to hit the generic 1.65 visual clamp after one
+        # rank, so later ranks changed collision without changing appearance.
+        # Square-root scaling keeps every rank readable without turning the
+        # rank-six projectile into a screen-wide sprite.
+        var base_scale := GameConfig.SNIPER_RADIUS / GameConfig.NEEDLE_RADIUS
+        var size_ratio := radius / maxf(1.0, GameConfig.SNIPER_RADIUS)
+        return base_scale * sqrt(maxf(0.01, size_ratio))
     return clampf(radius / maxf(1.0, GameConfig.NEEDLE_RADIUS), 0.65, 1.65)
 
 
@@ -3345,8 +3362,11 @@ func _update_render_batches() -> void:
         var position := WorldSpace.nearest_image(player_position, projectile_positions[projectile_index])
         if not _is_near_view(position, projectile_half):
             continue
-        var visual_scale := _projectile_visual_scale(projectile_radii[projectile_index])
         var projectile_kind := projectile_kinds[projectile_index]
+        var visual_scale := _projectile_visual_scale(
+            projectile_radii[projectile_index],
+            projectile_kind
+        )
         var direction := projectile_velocities[projectile_index]
         var projectile_transform := Transform2D(direction.angle(), position)
         match projectile_kind:
@@ -3547,6 +3567,25 @@ func _draw() -> void:
         draw_circle(player_position, aura_visual_radius, Color(0.02, 0.72, 0.90, 0.08 * (1.0 - aura_fraction)))
         draw_arc(player_position, aura_visual_radius, 0.0, TAU, 48, Color(COLOR_CYAN, 0.82 * (1.0 - aura_fraction)), 5.0)
         draw_arc(player_position, aura_visual_radius - 10.0, 0.0, TAU, 48, Color(COLOR_TEAL, 0.35 * (1.0 - aura_fraction)), 2.0)
+
+    if flak_visual_timer > 0.0:
+        var flak_fade := flak_visual_timer / GameConfig.FLAK_VISUAL_DURATION
+        var center_angle := flak_visual_direction.angle()
+        var half_spread := flak_spread * 0.5
+        var cone_radius := minf(flak_range, 420.0)
+        var left_end := player_position + Vector2.from_angle(center_angle - half_spread) * cone_radius
+        var right_end := player_position + Vector2.from_angle(center_angle + half_spread) * cone_radius
+        draw_line(player_position, left_end, Color(COLOR_ORANGE, 0.58 * flak_fade), 3.0)
+        draw_line(player_position, right_end, Color(COLOR_ORANGE, 0.58 * flak_fade), 3.0)
+        draw_arc(
+            player_position,
+            cone_radius,
+            center_angle - half_spread,
+            center_angle + half_spread,
+            18,
+            Color(COLOR_ORANGE, 0.34 * flak_fade),
+            2.0
+        )
 
     if player_one_shot_protection_timer > 0.0:
         var protection_fraction := player_one_shot_protection_timer / GameConfig.PLAYER_ONE_SHOT_PROTECTION_VISUAL_DURATION

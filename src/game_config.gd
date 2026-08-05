@@ -216,6 +216,7 @@ const FLAK_SPEED := 720.0
 const FLAK_LIFETIME := 0.42
 const FLAK_RANGE := 520.0
 const FLAK_RADIUS := 5.0
+const FLAK_VISUAL_DURATION := 0.14
 
 # Orbital: satellites that circle the player. These live in their own arrays
 # because the shared projectile sweep advances entries by velocity and treats
@@ -613,7 +614,7 @@ const UPGRADE_DESCRIPTIONS := {
     "sniper_fire_rate": "-10% Longshot cooldown",
     "sniper_pierce": "+1 full Longshot damage budget (max 4)",
     "sniper_range": "+12% Longshot targeting and travel range",
-    "sniper_size": "+45% Longshot projectile size",
+    "sniper_size": "+45% Longshot collision radius; the projectile visibly grows",
     "aura_fire_rate": "-10% Aura Pulse cooldown",
     "aura_radius": "+12% Aura Pulse radius",
     "aura_echoes": "+1 delayed pulse that rechecks enemies in range",
@@ -630,7 +631,7 @@ const UPGRADE_DESCRIPTIONS := {
     "chain_range": "+12% Arc Chain targeting and jump radius",
     "flak_fire_rate": "-10% Flak Burst cooldown",
     "flak_pellets": "+1 Flak Burst pellet",
-    "flak_spread": "-12% Flak Burst spread for tighter grouping",
+    "flak_spread": "-12% Flak Burst cone angle; the firing cone visibly narrows",
     "flak_range": "+15% Flak Burst pellet travel and range",
     "orbital_count": "+1 orbiting satellite",
     "orbital_fire_rate": "+12% Orbital rotation and contact rate",

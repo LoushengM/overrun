@@ -34,6 +34,15 @@ func _run() -> void:
     _verify_pickup_radar(radar_capture)
     var hotbar_capture: Image = await _capture_weapon_hotbar(world, hud)
     _verify_weapon_hotbar(hotbar_capture)
+    var base_longshot: Image = await _capture_longshot_size(world, hud, GameConfig.SNIPER_RADIUS)
+    var upgraded_longshot: Image = await _capture_longshot_size(
+        world,
+        hud,
+        GameConfig.SNIPER_RADIUS * pow(GameConfig.SNIPER_SIZE_UPGRADE_MULTIPLIER, 2.0)
+    )
+    _verify_longshot_size_feedback(base_longshot, upgraded_longshot)
+    var flak_captures: Array[Image] = await _capture_flak_cone(world, hud)
+    _verify_flak_cone_feedback(flak_captures[0], flak_captures[1])
 
     scene.queue_free()
     await process_frame
@@ -50,6 +59,123 @@ func _capture(world: SimulationWorld, position: Vector2, frame_count: int) -> Im
     for frame_index in range(frame_count):
         await process_frame
     return root.get_viewport().get_texture().get_image()
+
+
+func _capture_longshot_size(world: SimulationWorld, hud: GameHud, radius: float) -> Image:
+    hud.visible = false
+    for enemy_index in range(world.enemy_positions.size()):
+        world.enemy_positions[enemy_index] = Vector2(4000.0, 4000.0)
+    world._rebuild_enemy_grid()
+    _clear_projectiles(world)
+    world._spawn_projectile(
+        Vector2.RIGHT,
+        100.0,
+        0.0,
+        10.0,
+        radius,
+        SimulationWorld.ProjectileKind.SNIPER
+    )
+    world.projectile_positions[0] = world.player_position + Vector2(220.0, 0.0)
+    world._update_render_batches()
+    world.queue_redraw()
+    for frame_index in range(2):
+        await process_frame
+    return root.get_viewport().get_texture().get_image()
+
+
+func _verify_longshot_size_feedback(base_image: Image, upgraded_image: Image) -> void:
+    var base_metrics := _longshot_visual_metrics(base_image)
+    var upgraded_metrics := _longshot_visual_metrics(upgraded_image)
+    print("LONGSHOT_SIZE_METRICS ", JSON.stringify({
+        "base": base_metrics,
+        "upgraded": upgraded_metrics,
+    }))
+    assert(
+        int(upgraded_metrics["width"]) >= int(base_metrics["width"]) + 20,
+        "Later Longshot size ranks must visibly widen the projectile"
+    )
+    assert(
+        int(upgraded_metrics["count"]) >= int(float(base_metrics["count"]) * 1.55),
+        "Later Longshot size ranks must visibly increase projectile coverage"
+    )
+
+
+func _longshot_visual_metrics(image: Image) -> Dictionary:
+    var count := 0
+    var minimum_x := 9999
+    var maximum_x := -1
+    var minimum_y := 9999
+    var maximum_y := -1
+    for y in range(300, 420):
+        for x in range(760, 960):
+            var color := image.get_pixel(x, y)
+            var bright_cyan := color.b > 0.72 and color.g > 0.58 and color.r < 0.65
+            var bright_white := color.r > 0.72 and color.g > 0.72 and color.b > 0.72
+            var orange := color.r > 0.65 and color.g > 0.25 and color.g < color.r * 0.85 and color.b < 0.45
+            if not bright_cyan and not bright_white and not orange:
+                continue
+            count += 1
+            minimum_x = mini(minimum_x, x)
+            maximum_x = maxi(maximum_x, x)
+            minimum_y = mini(minimum_y, y)
+            maximum_y = maxi(maximum_y, y)
+    return {
+        "count": count,
+        "width": maximum_x - minimum_x + 1,
+        "height": maximum_y - minimum_y + 1,
+    }
+
+
+func _capture_flak_cone(world: SimulationWorld, hud: GameHud) -> Array[Image]:
+    hud.visible = false
+    _clear_projectiles(world)
+    world._update_render_batches()
+    world.flak_visual_timer = 0.0
+    world.queue_redraw()
+    await process_frame
+    var without_cone := root.get_viewport().get_texture().get_image()
+    world.flak_visual_direction = Vector2.RIGHT
+    world.flak_spread = deg_to_rad(35.0)
+    world.flak_range = GameConfig.FLAK_RANGE
+    world.flak_visual_timer = GameConfig.FLAK_VISUAL_DURATION
+    world.queue_redraw()
+    await process_frame
+    var with_cone := root.get_viewport().get_texture().get_image()
+    return [without_cone, with_cone]
+
+
+func _verify_flak_cone_feedback(without_cone: Image, with_cone: Image) -> void:
+    var changed_orange_pixels := 0
+    for y in range(120, 600):
+        for x in range(640, 1160):
+            var before := without_cone.get_pixel(x, y)
+            var after := with_cone.get_pixel(x, y)
+            var difference := (
+                absf(after.r - before.r)
+                + absf(after.g - before.g)
+                + absf(after.b - before.b)
+            )
+            if (
+                after.r > 0.45
+                and after.r > after.g * 1.25
+                and after.r > after.b * 1.8
+                and difference > 0.18
+            ):
+                changed_orange_pixels += 1
+    print("FLAK_CONE_METRICS ", JSON.stringify({
+        "changed_orange_pixels": changed_orange_pixels,
+    }))
+    assert(changed_orange_pixels >= 900, "Flak fire must visibly flash its current cone boundaries")
+
+
+func _clear_projectiles(world: SimulationWorld) -> void:
+    world.projectile_positions.clear()
+    world.projectile_velocities.clear()
+    world.projectile_lifetimes.clear()
+    world.projectile_remaining_damage.clear()
+    world.projectile_attack_ids.clear()
+    world.projectile_radii.clear()
+    world.projectile_kinds.clear()
 
 
 func _capture_weapon_hotbar(world: SimulationWorld, hud: GameHud) -> Image:

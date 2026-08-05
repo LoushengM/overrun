@@ -917,6 +917,7 @@ func _test_targeting_modes(scene: Node, world: SimulationWorld, hud: GameHud) ->
     assert(hud.weapon_hotbar_labels.size() == GameConfig.WEAPON_SLOT_CAP, "The HUD must expose one targeting slot per weapon slot")
     assert(hud.weapon_hotbar_labels[0].text.contains("NEEDLE") and hud.weapon_hotbar_labels[0].text.contains("CLOSEST"), "Slot one must show Needle's targeting mode")
     assert(hud.weapon_hotbar_labels[1].text.contains("LONGSHOT") and hud.weapon_hotbar_labels[1].text.contains("CLOSEST"), "Slot two must show Longshot's independent targeting mode")
+    assert(hud.weapon_hotbar_labels[1].text.contains("x1.00"), "Longshot's hotbar slot must expose its current size multiplier")
     assert(hud.weapon_hotbar_labels[2].text.contains("AURA PULSE") and hud.weapon_hotbar_labels[2].text.contains("AREA"), "Non-targeted weapons must be labelled AREA")
 
     world._add_enemy(Vector2(100.0, 0.0), 100.0, 0.0, 0.0, 14.0, 0, SimulationWorld.EnemyKind.NORMAL, Vector2.ZERO)
@@ -971,6 +972,13 @@ func _test_targeting_modes(scene: Node, world: SimulationWorld, hud: GameHud) ->
     world._add_enemy(Vector2(150.0, 0.0), 100.0, 0.0, 0.0, 14.0, 0, SimulationWorld.EnemyKind.NORMAL, Vector2.ZERO)
     assert(world._find_target_enemy(Vector2.ZERO, GameConfig.NEEDLE_RANGE, "needle") == 1, "Strongest targeting must fall back to the closest normal enemy when no boss is valid")
 
+    world.owned_weapons.assign(["needle", "sniper", "aura", "flak"])
+    world.sniper_radius = GameConfig.SNIPER_RADIUS * GameConfig.SNIPER_SIZE_UPGRADE_MULTIPLIER
+    world.flak_spread = deg_to_rad(GameConfig.FLAK_SPREAD_DEGREES) * 0.88
+    world._emit_stats()
+    assert(hud.weapon_hotbar_labels[1].text.contains("x1.45"), "Longshot's hotbar readout must update after Heavy Caliber")
+    assert(hud.weapon_hotbar_labels[3].text.contains("45.8°"), "Flak's hotbar readout must show the tightened cone angle")
+
 
 func _test_weapon_firing_rules(world: SimulationWorld) -> void:
     world.reset_run()
@@ -1002,6 +1010,10 @@ func _test_weapon_firing_rules(world: SimulationWorld) -> void:
     _clear_combat_state(world)
     world.owned_weapons.assign(["needle", "sniper"])
     var old_sniper_radius := world.sniper_radius
+    var old_sniper_visual_scale := world._projectile_visual_scale(
+        old_sniper_radius,
+        SimulationWorld.ProjectileKind.SNIPER
+    )
     world.pending_upgrade = true
     world.apply_upgrade("sniper_size")
     assert(is_equal_approx(GameConfig.SNIPER_SIZE_UPGRADE_MULTIPLIER, 1.45), "Heavy Caliber must increase Longshot radius by 45% per rank")
@@ -1010,7 +1022,18 @@ func _test_weapon_firing_rules(world: SimulationWorld) -> void:
     world.sniper_timer = 0.0
     world._update_sniper(0.0)
     assert(is_equal_approx(world.projectile_radii[0], world.sniper_radius), "Longshot must spawn with its upgraded collision radius")
-    assert(world._projectile_visual_scale(world.sniper_radius) > 1.0, "Longshot size upgrades must enlarge the rendered projectile")
+    var upgraded_sniper_visual_scale := world._projectile_visual_scale(
+        world.sniper_radius,
+        SimulationWorld.ProjectileKind.SNIPER
+    )
+    assert(upgraded_sniper_visual_scale > old_sniper_visual_scale, "Longshot size upgrades must visibly enlarge the rendered projectile")
+    assert(
+        world._projectile_visual_scale(
+            world.sniper_radius * GameConfig.SNIPER_SIZE_UPGRADE_MULTIPLIER,
+            SimulationWorld.ProjectileKind.SNIPER
+        ) > upgraded_sniper_visual_scale,
+        "Every later Longshot size rank must remain visually distinguishable"
+    )
     world.weapon_upgrade_levels["sniper_size"] = GameConfig.WEAPON_UPGRADE_CAPS["sniper_size"]
     assert(not world._is_upgrade_eligible("sniper_size"), "Longshot size upgrades must disappear at their cap")
     world.weapon_upgrade_levels["sniper_size"] = 1
@@ -1178,6 +1201,10 @@ func _test_expanded_weapon_roster(world: SimulationWorld) -> void:
     # Flak Burst spreads a cone of pellets on the shared projectile arrays.
     _clear_combat_state(world)
     world.owned_weapons.assign(["needle", "flak"])
+    var base_flak_spread := world.flak_spread
+    world.pending_upgrade = true
+    world.apply_upgrade("flak_spread")
+    assert(world.flak_spread < base_flak_spread, "Tightened Choke must reduce the actual Flak cone angle")
     world._add_enemy(Vector2(200.0, 0.0), 1000.0, 0.0, 0.0, 14.0, 0, SimulationWorld.EnemyKind.NORMAL, Vector2.ZERO)
     world.flak_timer = 0.0
     world._update_flak(0.0)
@@ -1187,7 +1214,8 @@ func _test_expanded_weapon_roster(world: SimulationWorld) -> void:
         world.projectile_velocities[0].angle(),
         world.projectile_velocities[world.flak_pellets - 1].angle()
     ))
-    assert(spread > 0.01, "Flak Burst pellets must fan across a cone")
+    assert(is_equal_approx(spread, world.flak_spread), "Flak pellet endpoints must match the upgraded cone angle")
+    assert(world.flak_visual_timer > 0.0, "Flak fire must briefly display its current cone")
 
     # Orbitals ring the player and respect their contact interval.
     _clear_combat_state(world)

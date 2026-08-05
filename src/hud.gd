@@ -196,7 +196,11 @@ func update_stats(stats: Dictionary) -> void:
         "detonator": "D",
     }
     var owned_weapon_ids: Array = stats.get("owned_weapons", [])
-    _update_weapon_hotbar(owned_weapon_ids, stats.get("weapon_targeting_modes", {}))
+    _update_weapon_hotbar(
+        owned_weapon_ids,
+        stats.get("weapon_targeting_modes", {}),
+        stats
+    )
     var loadout_codes: Array[String] = []
     for weapon_id in owned_weapon_ids:
         loadout_codes.append(weapon_codes.get(weapon_id, "?"))
@@ -257,7 +261,11 @@ func update_stats(stats: Dictionary) -> void:
         )
 
 
-func _update_weapon_hotbar(owned_weapon_ids: Array, targeting_modes_variant: Variant) -> void:
+func _update_weapon_hotbar(
+    owned_weapon_ids: Array,
+    targeting_modes_variant: Variant,
+    stats: Dictionary
+) -> void:
     var targeting_modes: Dictionary = (
         targeting_modes_variant
         if targeting_modes_variant is Dictionary
@@ -272,7 +280,12 @@ func _update_weapon_hotbar(owned_weapon_ids: Array, targeting_modes_variant: Var
         var weapon_id := str(owned_weapon_ids[slot_index])
         var weapon_name := str(GameConfig.WEAPON_NAMES.get(weapon_id, weapon_id)).to_upper()
         var mode := str(targeting_modes.get(weapon_id, "AREA"))
-        label.text = "[%d]  %s\n%s" % [slot_index + 1, weapon_name, mode]
+        var detail := mode
+        if weapon_id == "sniper":
+            detail += "  x%.2f" % float(stats.get("sniper_size_multiplier", 1.0))
+        elif weapon_id == "flak":
+            detail += "  %.1f°" % float(stats.get("flak_spread_degrees", GameConfig.FLAK_SPREAD_DEGREES))
+        label.text = "[%d]  %s\n%s" % [slot_index + 1, weapon_name, detail]
         match mode:
             "STRONGEST":
                 label.add_theme_color_override("font_color", UI_ORANGE)
