@@ -1920,9 +1920,6 @@ func apply_upgrade(upgrade_id: String) -> void:
                 weapon_projectile_count += 1
             "needle_pierce":
                 weapon_pierce += 1
-            "needle_range":
-                weapon_range *= 1.12
-                weapon_lifetime *= 1.12
             "sniper_fire_rate":
                 sniper_cooldown = maxf(0.20, sniper_cooldown * 0.90)
             "sniper_pierce":

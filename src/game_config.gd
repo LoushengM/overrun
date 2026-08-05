@@ -440,7 +440,6 @@ const UPGRADE_ROLL_WEIGHTS := {
     "max_health": LOW_FREQUENCY_UPGRADE_WEIGHT,
     "armor": LOW_FREQUENCY_UPGRADE_WEIGHT,
     "regen": LOW_FREQUENCY_UPGRADE_WEIGHT,
-    "needle_range": LOW_FREQUENCY_UPGRADE_WEIGHT,
     "sniper_range": LOW_FREQUENCY_UPGRADE_WEIGHT,
 }
 
@@ -448,7 +447,6 @@ const NEEDLE_UPGRADE_IDS := [
     "needle_fire_rate",
     "needle_projectile_count",
     "needle_pierce",
-    "needle_range",
 ]
 
 const SNIPER_UPGRADE_IDS := [
@@ -512,7 +510,6 @@ const WEAPON_UPGRADE_CAPS := {
     "needle_fire_rate": 10,
     "needle_projectile_count": 10,
     "needle_pierce": 10,
-    "needle_range": 5,
     "sniper_fire_rate": 8,
     "sniper_pierce": 6,
     "sniper_range": 5,
@@ -562,7 +559,6 @@ const UPGRADE_NAMES := {
     "needle_fire_rate": "Needle — Faster Cycling",
     "needle_projectile_count": "Needle — Split Shot",
     "needle_pierce": "Needle — Piercing Rounds",
-    "needle_range": "Needle — Extended Barrel",
     "sniper_fire_rate": "Longshot — Bolt Cycling",
     "sniper_pierce": "Longshot — Penetrator",
     "sniper_range": "Longshot — High-Power Optics",
@@ -606,7 +602,6 @@ const UPGRADE_DESCRIPTIONS := {
     "needle_fire_rate": "-12% Needle cooldown",
     "needle_projectile_count": "+1 Needle projectile per attack",
     "needle_pierce": "+1 full Needle damage budget",
-    "needle_range": "+12% Needle targeting and travel range",
     "sniper_fire_rate": "-10% Longshot cooldown",
     "sniper_pierce": "+1 full Longshot damage budget",
     "sniper_range": "+12% Longshot targeting and travel range",

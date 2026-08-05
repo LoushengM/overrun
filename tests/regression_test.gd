@@ -479,7 +479,7 @@ func _test_offense_pity(world: SimulationWorld) -> void:
     assert(eligible_dps.has("needle_fire_rate"), "Owned-weapon fire rate must be eligible for offense pity")
     assert(eligible_dps.has("needle_projectile_count"), "Owned-weapon projectile count must be eligible for offense pity")
     assert(not eligible_dps.has("sniper_fire_rate"), "Unowned weapon upgrades must not enter offense pity")
-    assert(not eligible_dps.has("needle_range"), "Range must not satisfy offense pity")
+    assert(not eligible_dps.has("needle_range"), "The retired Needle range upgrade must not enter offense pity")
     for roll_index in range(20):
         var pity_options := world._roll_upgrade_options()
         assert(pity_options.size() == 3, "Offense pity rolls must still contain three choices")
@@ -500,7 +500,12 @@ func _test_offense_pity(world: SimulationWorld) -> void:
 
 
 func _test_upgrade_roll_weights(world: SimulationWorld) -> void:
-    var low_frequency_ids := ["needle_range", "sniper_range", "regen", "max_health", "armor"]
+    assert(not GameConfig.NEEDLE_UPGRADE_IDS.has("needle_range"), "Needle range must be removed from its upgrade pool")
+    assert(not GameConfig.WEAPON_UPGRADE_CAPS.has("needle_range"), "The retired Needle range upgrade must not keep a rank cap")
+    assert(not GameConfig.UPGRADE_NAMES.has("needle_range"), "The retired Needle range card must not keep display metadata")
+    assert(not GameConfig.UPGRADE_DESCRIPTIONS.has("needle_range"), "The retired Needle range card must not keep a description")
+    assert(not world._is_upgrade_eligible("needle_range"), "The retired Needle range upgrade must never be eligible")
+    var low_frequency_ids := ["sniper_range", "regen", "max_health", "armor"]
     for upgrade_id in low_frequency_ids:
         assert(
             is_equal_approx(world._upgrade_roll_weight(upgrade_id), GameConfig.LOW_FREQUENCY_UPGRADE_WEIGHT),
@@ -510,7 +515,10 @@ func _test_upgrade_roll_weights(world: SimulationWorld) -> void:
     assert(is_equal_approx(world._upgrade_roll_weight("move_speed"), 1.0), "Movement speed must retain normal roll weight")
     assert(GameConfig.DPS_UPGRADE_IDS.has("damage"), "Base Damage must remain a DPS pity option")
     assert(GameConfig.DPS_UPGRADE_IDS.has("needle_fire_rate"), "Weapon fire-rate upgrades must be valid DPS pity options")
-    assert(not GameConfig.DPS_UPGRADE_IDS.has("needle_range"), "Range must not satisfy the DPS pity system")
+    assert(not GameConfig.DPS_UPGRADE_IDS.has("needle_range"), "The retired Needle range upgrade must not satisfy the DPS pity system")
+    for roll_index in range(100):
+        assert(not world._roll_upgrade_options().has("needle_range"), "Needle range must never return to level-up rolls")
+        assert(not world._roll_weapon_upgrade_options().has("needle_range"), "Needle range must never return to boss rewards")
 
     world.rng.seed = 18071988
     var low_frequency_count := 0
