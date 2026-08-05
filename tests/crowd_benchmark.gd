@@ -18,24 +18,25 @@ func _run() -> void:
     world.player_position = Vector2.ZERO
     world.needle_timer = 9999.0
 
-    # 1200 enemies is the stated performance promise, so the grid has to match
-    # it -- 32x25 only ever exercised 800.
-    var columns := 40
-    var rows := 30
+    # Exercise the full normal-enemy budget. Ten additional slots are reserved
+    # for bosses, keeping the total live population at or below ENEMY_CAP.
+    var columns := 29
+    var rows := ceili(float(GameConfig.NORMAL_ENEMY_CAP) / float(columns))
     var spacing := Vector2(38.0, 27.0)
     var origin := Vector2(-float(columns - 1) * spacing.x * 0.5, -float(rows - 1) * spacing.y * 0.5)
-    for row in range(rows):
-        for column in range(columns):
-            world._add_enemy(
-                origin + Vector2(column * spacing.x, row * spacing.y),
-                1000000.0,
-                0.0,
-                0.0,
-                GameConfig.NORMAL_ENEMY_RADIUS,
-                0,
-                SimulationWorld.EnemyKind.NORMAL,
-                Vector2.ZERO
-            )
+    for enemy_index in range(GameConfig.NORMAL_ENEMY_CAP):
+        var column := enemy_index % columns
+        var row := enemy_index / columns
+        world._add_enemy(
+            origin + Vector2(column * spacing.x, row * spacing.y),
+            1000000.0,
+            0.0,
+            0.0,
+            GameConfig.NORMAL_ENEMY_RADIUS,
+            0,
+            SimulationWorld.EnemyKind.NORMAL,
+            Vector2.ZERO
+        )
 
     world._update_render_batches()
     var started := Time.get_ticks_msec()
@@ -44,6 +45,8 @@ func _run() -> void:
 
     print("CROWD_BENCHMARK_RESULT ", JSON.stringify({
         "enemies": world.enemy_positions.size(),
+        "normal_enemy_cap": GameConfig.NORMAL_ENEMY_CAP,
+        "total_enemy_cap": GameConfig.ENEMY_CAP,
         "visible_instances": world.normal_enemy_multimesh.visible_instance_count,
         "fps": Engine.get_frames_per_second(),
     }))

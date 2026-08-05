@@ -235,9 +235,10 @@ func update_stats(stats: Dictionary) -> void:
                 int(stats.get("primitives", 0)),
                 int(stats.get("render_objects", 0)),
             ]
-            + "ENEMY %d    SHOTS %d    FIELDS %d
+            + "ENEMY %d/%d    SHOTS %d    FIELDS %d
 " % [
                 int(stats.get("enemies", 0)),
+                int(stats.get("enemy_cap", 0)),
                 int(stats.get("enemy_shots", 0)),
                 int(stats.get("fields", 0)),
             ]
@@ -247,7 +248,10 @@ func update_stats(stats: Dictionary) -> void:
                 int(stats.get("orbitals", 0)),
                 int(stats.get("blasts", 0)),
             ]
-            + "GRID CELLS %d" % int(stats.get("grid_cells", 0))
+            + "GRID CELLS %d    SPAWN POP %.0f%%" % [
+                int(stats.get("grid_cells", 0)),
+                float(stats.get("spawn_population_multiplier", 1.0)) * 100.0,
+            ]
         )
 
 

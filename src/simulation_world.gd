@@ -534,7 +534,7 @@ func enable_benchmark(expanded_loadout: bool = false) -> void:
     enemy_grid_cells.clear()
     enemy_grid_slots.clear()
     enemy_update_tick = 0
-    for i in range(1200):
+    for i in range(GameConfig.NORMAL_ENEMY_CAP):
         var angle := rng.randf_range(0.0, TAU)
         var distance := rng.randf_range(380.0, 1800.0)
         _add_enemy(
@@ -1493,15 +1493,38 @@ func _update_spawning(delta: float) -> void:
         surge_multiplier = 1.0 + 3.0 * minf(1.0, surge_time / GameConfig.SURGE_RAMP_TIME)
     surge_multiplier *= _phase_spawn_multiplier()
 
-    spawn_accumulator += base_rate * surge_multiplier * delta
+    var population_multiplier := _population_spawn_multiplier(enemy_positions.size())
+    var effective_rate := base_rate * surge_multiplier * population_multiplier
+    spawn_accumulator += effective_rate * delta
     var spawned_this_tick := 0
-    while spawn_accumulator >= 1.0 and enemy_positions.size() < GameConfig.ENEMY_CAP and spawned_this_tick < GameConfig.MAX_SPAWNS_PER_TICK:
-        _spawn_normal_enemy()
+    var normal_count := enemy_positions.size() - get_boss_count()
+    while (
+        spawn_accumulator >= 1.0
+        and normal_count < GameConfig.NORMAL_ENEMY_CAP
+        and enemy_positions.size() < GameConfig.ENEMY_CAP
+        and spawned_this_tick < GameConfig.MAX_SPAWNS_PER_TICK
+    ):
+        if not _spawn_normal_enemy(true):
+            break
         spawn_accumulator -= 1.0
         spawned_this_tick += 1
+        normal_count += 1
 
-    var max_spawn_debt := base_rate * surge_multiplier * GameConfig.MAX_SPAWN_DEBT_SECONDS
+    var max_spawn_debt := effective_rate * GameConfig.MAX_SPAWN_DEBT_SECONDS
     spawn_accumulator = minf(spawn_accumulator, max_spawn_debt)
+
+
+# Throttle replenishment from the current live population. Using the logarithm
+# of remaining capacity preserves strong recovery after a clear while easing
+# progressively toward zero near the hard cap.
+func _population_spawn_multiplier(alive_count: int) -> float:
+    var remaining_fraction := clampf(
+        1.0 - float(alive_count) / float(GameConfig.ENEMY_CAP),
+        0.0,
+        1.0
+    )
+    var strength := GameConfig.SPAWN_POPULATION_LOG_STRENGTH
+    return log(1.0 + strength * remaining_fraction) / log(1.0 + strength)
 
 
 # Ramp -> spike -> collapse, repeating. Returns a multiplier on the base spawn
@@ -1538,16 +1561,24 @@ func _update_boss_schedule() -> void:
     _request_sound("boss_spawn")
 
 
-func _spawn_normal_enemy() -> void:
-    if enemy_positions.size() >= GameConfig.ENEMY_CAP:
-        return
+func _spawn_normal_enemy(capacity_prechecked: bool = false) -> bool:
+    if not capacity_prechecked and (
+        enemy_positions.size() >= GameConfig.ENEMY_CAP
+        or enemy_positions.size() - get_boss_count() >= GameConfig.NORMAL_ENEMY_CAP
+    ):
+        return false
     var angle := rng.randf_range(0.0, TAU)
     if player_move_direction.length_squared() > 0.1 and rng.randf() < 0.20:
         angle = player_move_direction.angle() + rng.randf_range(-0.55, 0.55)
     var view_scale := _camera_view_scale()
     var distance := rng.randf_range(760.0 * view_scale, 1040.0 * view_scale)
     var spawn_position := WorldSpace.wrap_position(player_position + Vector2.from_angle(angle) * distance)
-    _spawn_archetype(spawn_position, _pick_archetype(_paced_minutes()), 1.0)
+    return _spawn_archetype(
+        spawn_position,
+        _pick_archetype(_paced_minutes()),
+        1.0,
+        capacity_prechecked
+    )
 
 
 # Stat scales packed into a Vector4 (health, speed, damage, radius) so archetype
@@ -1639,9 +1670,17 @@ func _pick_archetype(minutes: float) -> int:
     return EnemyArchetype.GRUNT
 
 
-func _spawn_archetype(position: Vector2, archetype: int, health_multiplier: float) -> void:
-    if enemy_positions.size() >= GameConfig.ENEMY_CAP:
-        return
+func _spawn_archetype(
+    position: Vector2,
+    archetype: int,
+    health_multiplier: float,
+    capacity_prechecked: bool = false
+) -> bool:
+    if not capacity_prechecked and (
+        enemy_positions.size() >= GameConfig.ENEMY_CAP
+        or enemy_positions.size() - get_boss_count() >= GameConfig.NORMAL_ENEMY_CAP
+    ):
+        return false
     var minutes := _paced_minutes()
     var damage_scale := 1.0 + 0.10 * minutes + 0.020 * minutes * minutes
     var scale := _archetype_stat_scale(archetype)
@@ -1656,6 +1695,7 @@ func _spawn_archetype(position: Vector2, archetype: int, health_multiplier: floa
         Vector2.ZERO,
         archetype
     )
+    return true
 
 
 func _current_normal_speed_scale() -> float:
@@ -2568,6 +2608,8 @@ func get_stats_snapshot() -> Dictionary:
         "paced_elapsed": _paced_elapsed_time(),
         "kills": kills,
         "enemies": enemy_positions.size(),
+        "enemy_cap": GameConfig.ENEMY_CAP,
+        "spawn_population_multiplier": _population_spawn_multiplier(enemy_positions.size()),
         "projectiles": projectile_positions.size(),
         "fields": field_positions.size(),
         "pickups": pickup_positions.size(),

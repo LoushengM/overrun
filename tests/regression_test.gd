@@ -27,6 +27,7 @@ func _run() -> void:
     _test_player_invulnerability(world)
     _test_speed_upgrade_camera_zoom(world)
     _test_game_pace_scaling(world)
+    _test_population_spawn_curve(world)
     _test_enemy_speed_scaling(world)
     _test_boss_scaling_and_protection(world)
     _test_weapon_slots_and_boss_rewards(scene, world, hud)
@@ -556,6 +557,41 @@ func _test_game_pace_scaling(world: SimulationWorld) -> void:
     world.elapsed_time = GameConfig.FIRST_BOSS_TIME / GameConfig.GAME_PACE_MULTIPLIER
     world._update_boss_schedule()
     assert(world.get_boss_count() == 1, "The first boss must spawn at 22.5 real seconds under 2x pace")
+
+
+func _test_population_spawn_curve(world: SimulationWorld) -> void:
+    assert(GameConfig.ENEMY_CAP == 725, "The total live-enemy cap must be halved to 725")
+    assert(GameConfig.NORMAL_ENEMY_CAP == 715, "Ten slots must remain reserved for bosses")
+
+    var empty_multiplier := world._population_spawn_multiplier(0)
+    var half_multiplier := world._population_spawn_multiplier(GameConfig.ENEMY_CAP / 2)
+    var crowded_multiplier := world._population_spawn_multiplier(
+        floori(float(GameConfig.ENEMY_CAP) * 0.90)
+    )
+    var nearly_full_multiplier := world._population_spawn_multiplier(GameConfig.ENEMY_CAP - 1)
+    var full_multiplier := world._population_spawn_multiplier(GameConfig.ENEMY_CAP)
+
+    assert(is_equal_approx(empty_multiplier, 1.0), "An empty arena must retain the full spawn rate")
+    assert(half_multiplier > 0.79 and half_multiplier < 0.83, "Half capacity must retain roughly 81% of the base spawn rate")
+    assert(crowded_multiplier > 0.38 and crowded_multiplier < 0.44, "At 90% capacity the logarithmic throttle must reduce spawning to roughly 41%")
+    assert(nearly_full_multiplier > 0.0 and nearly_full_multiplier < crowded_multiplier, "The curve must continue easing toward the cap")
+    assert(is_zero_approx(full_multiplier), "The population multiplier must reach zero at the hard cap")
+
+    _clear_combat_state(world)
+    for enemy_index in range(GameConfig.NORMAL_ENEMY_CAP):
+        world._add_enemy(
+            Vector2(float(enemy_index), 0.0),
+            1.0,
+            0.0,
+            0.0,
+            GameConfig.NORMAL_ENEMY_RADIUS,
+            0,
+            SimulationWorld.EnemyKind.NORMAL,
+            Vector2.ZERO
+        )
+    world._spawn_normal_enemy()
+    assert(world.enemy_positions.size() == GameConfig.NORMAL_ENEMY_CAP, "Normal spawning must preserve ten boss slots")
+    _clear_combat_state(world)
 
 
 func _test_enemy_speed_scaling(world: SimulationWorld) -> void:

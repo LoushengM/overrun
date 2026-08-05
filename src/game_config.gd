@@ -252,10 +252,21 @@ const FLAK_DPS_UPTIME_FACTOR := 0.55
 const ORBITAL_DPS_UPTIME_FACTOR := 0.60
 const DETONATOR_DPS_UPTIME_FACTOR := 0.70
 
-const ENEMY_CAP := 1450
+# Reserve boss capacity inside the total population budget so late waves cannot
+# crowd out scheduled bosses. Normal enemies stop at 715; up to ten bosses bring
+# the absolute live-enemy ceiling to 725.
+const ENEMY_CAP := 725
+const BOSS_CAP := 10
+const NORMAL_ENEMY_CAP := ENEMY_CAP - BOSS_CAP
+
+# Population-based spawn throttling. The multiplier is a normalized logarithm
+# of remaining capacity: 1.0 in an empty arena, then progressively lower as the
+# live population approaches ENEMY_CAP. A strength of 31 gives approximately
+# 0.82 at half capacity and 0.41 at 90% capacity.
+const SPAWN_POPULATION_LOG_STRENGTH := 31.0
+
 const PROJECTILE_CAP := 16384
 const PICKUP_CAP := 40
-const BOSS_CAP := 10
 const GRID_CELL_SIZE := 96.0
 
 # The arena is a torus: leaving one edge re-enters the opposite edge. WORLD_SIZE

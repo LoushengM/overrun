@@ -15,13 +15,13 @@ The repository intentionally favors a small playable loop over a content framewo
 - Armor with diminishing returns, brief post-hit invulnerability frames, and lethal-hit protection above 50% HP
 - Regeneration only below 50% health after a damage delay
 - Persistent percentage-based health pickups
-- Endless health, damage, and uncapped movement scaling with anti-lull spawn-and-speed surges
+- Endless health, damage, and uncapped movement scaling with anti-lull surges and a live-population logarithmic spawn throttle
 - Proportional camera zoom-out whenever player movement speed increases
 - Fast-scaling persistent bosses with telegraphed attacks, burst protection, and weapon-only rewards that can unlock open weapon slots
 - A minimap that always marks bosses
 - A generated robot-themed sound system for weapons, enemies, bosses, pickups, UI navigation, upgrades, targeting, restart, and death
 - Death summary and one-input restart
-- A headless 1,200-enemy stress mode
+- A full-cap 715-normal-enemy stress mode with ten boss slots reserved
 
 The detailed design remains in [`docs/MVP_DESIGN.md`](docs/MVP_DESIGN.md).
 
@@ -61,9 +61,9 @@ Set `GODOT_BIN` when Godot is not on `PATH`:
 GODOT_BIN=/path/to/godot ./scripts/test.sh
 ```
 
-The test command imports the project, checks the XP curve, verifies pause and projectile collision behavior, and runs a ten-second 1,200-enemy headless benchmark.
+The test command imports the project, checks the XP and population-based spawn curves, verifies pause and projectile collision behavior, and runs full-cap headless and real-render benchmarks.
 
-A rendered benchmark that keeps 800 enemies visible is available at `tests/crowd_benchmark.gd`.
+The crowd benchmark fills all 715 normal-enemy slots, while the rendered cap test adds the ten reserved bosses for 725 total live enemies.
 
 ## Package Windows build
 
