@@ -73,6 +73,7 @@ var player_pickup_radius := GameConfig.PLAYER_PICKUP_RADIUS
 var time_since_player_damage := 999.0
 var player_contact_cooldown := 0.0
 var player_invulnerability_timer := 0.0
+var player_hit_streak := 0
 var player_one_shot_protection_timer := 0.0
 
 # Chosen on the select screen before a run starts. reset_run applies it after the
@@ -335,6 +336,7 @@ func reset_run() -> void:
     time_since_player_damage = 999.0
     player_contact_cooldown = 0.0
     player_invulnerability_timer = 0.0
+    player_hit_streak = 0
     player_one_shot_protection_timer = 0.0
 
     weapon_damage = GameConfig.NEEDLE_DAMAGE
@@ -1826,7 +1828,7 @@ func _apply_player_damage(raw_damage: float, ignores_contact_cooldown: bool) -> 
     var lethal_hit := final_damage >= player_health
     var one_shot_protection_triggered := (
         lethal_hit
-        and health_fraction_before_hit > GameConfig.PLAYER_ONE_SHOT_PROTECTION_THRESHOLD
+        and health_fraction_before_hit >= GameConfig.PLAYER_ONE_SHOT_PROTECTION_THRESHOLD
     )
     if one_shot_protection_triggered:
         player_health = GameConfig.PLAYER_ONE_SHOT_PROTECTION_HEALTH
@@ -1835,13 +1837,26 @@ func _apply_player_damage(raw_damage: float, ignores_contact_cooldown: bool) -> 
     else:
         player_health -= final_damage
         _request_sound("player_hit")
+    if time_since_player_damage <= GameConfig.PLAYER_HIT_STREAK_WINDOW:
+        player_hit_streak += 1
+    else:
+        player_hit_streak = 1
     time_since_player_damage = 0.0
-    player_invulnerability_timer = GameConfig.PLAYER_HIT_INVULNERABILITY
+    player_invulnerability_timer = _player_hit_invulnerability_duration()
     if not ignores_contact_cooldown:
         player_contact_cooldown = GameConfig.CONTACT_DAMAGE_COOLDOWN
     if player_health <= 0.0:
         player_health = 0.0
         _end_run()
+
+
+func _player_hit_invulnerability_duration() -> float:
+    var additional_hits := maxi(0, player_hit_streak - 1)
+    var multiplier := minf(
+        1.0 + float(additional_hits) * GameConfig.PLAYER_HIT_INVULNERABILITY_STREAK_INCREASE,
+        GameConfig.PLAYER_HIT_INVULNERABILITY_MAX_MULTIPLIER
+    )
+    return GameConfig.PLAYER_HIT_INVULNERABILITY * multiplier
 
 
 func _end_run() -> void:

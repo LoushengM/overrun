@@ -527,33 +527,85 @@ func _test_player_invulnerability(world: SimulationWorld) -> void:
     world.benchmark_mode = false
     world.is_running = true
     world.player_health = 100.0
-    world.player_armor = 0.0
-    world.player_invulnerability_timer = 0.0
-    world._apply_player_damage(10.0, true)
-    assert(is_equal_approx(world.player_health, 90.0), "The first hit must damage the player")
-    assert(world.player_invulnerability_timer > 0.0, "A hit must start player invulnerability frames")
-    world._apply_player_damage(10.0, true)
-    assert(is_equal_approx(world.player_health, 90.0), "Invulnerability frames must block immediate follow-up damage")
-    world.player_invulnerability_timer = 0.0
-    world._apply_player_damage(10.0, true)
-    assert(is_equal_approx(world.player_health, 80.0), "Damage must resume after invulnerability expires")
-
-    world.player_health = 51.0
     world.player_max_health = 100.0
     world.player_armor = 0.0
     world.player_invulnerability_timer = 0.0
-    world.player_one_shot_protection_timer = 0.0
-    world._apply_player_damage(1000.0, true)
-    assert(world.is_running, "A lethal hit above 50% health must not end the run")
-    assert(is_equal_approx(world.player_health, 1.0), "One-shot protection must leave the player at exactly 1 HP")
-    assert(world.player_one_shot_protection_timer > 0.0, "One-shot protection must trigger its visible feedback")
-    assert(world.player_invulnerability_timer > 0.0, "One-shot protection must still grant normal post-hit invulnerability")
+    world.player_hit_streak = 0
+    world.time_since_player_damage = 999.0
+
+    world._apply_player_damage(10.0, true)
+    assert(is_equal_approx(world.player_health, 90.0), "The first hit must damage the player")
+    assert(world.player_hit_streak == 1, "The first accepted hit must start the protection streak")
+    assert(
+        is_equal_approx(world.player_invulnerability_timer, GameConfig.PLAYER_HIT_INVULNERABILITY),
+        "The first hit must grant the base invulnerability duration"
+    )
+
+    var first_hit_timer := world.player_invulnerability_timer
+    world._apply_player_damage(10.0, true)
+    assert(is_equal_approx(world.player_health, 90.0), "Invulnerability frames must block immediate follow-up damage")
+    assert(world.player_hit_streak == 1, "Blocked hits must not build the protection streak")
+    assert(is_equal_approx(world.player_invulnerability_timer, first_hit_timer), "Blocked hits must not extend protection")
+
+    world.player_invulnerability_timer = 0.0
+    world.time_since_player_damage = 0.50
+    world._apply_player_damage(10.0, true)
+    assert(is_equal_approx(world.player_health, 80.0), "Damage must resume after invulnerability expires")
+    assert(world.player_hit_streak == 2, "A second accepted hit inside the streak window must increase the streak")
+    assert(
+        is_equal_approx(
+            world.player_invulnerability_timer,
+            GameConfig.PLAYER_HIT_INVULNERABILITY * 1.50
+        ),
+        "The second sequential hit must add 50% of the base protection duration"
+    )
+
+    world.player_invulnerability_timer = 0.0
+    world.time_since_player_damage = 0.50
+    world._apply_player_damage(10.0, true)
+    assert(world.player_hit_streak == 3, "A third sequential hit must keep building the streak")
+    assert(
+        is_equal_approx(
+            world.player_invulnerability_timer,
+            GameConfig.PLAYER_HIT_INVULNERABILITY * 2.0
+        ),
+        "The third sequential hit must grant twice the base protection duration"
+    )
+
+    world.player_hit_streak = 99
+    assert(
+        is_equal_approx(
+            world._player_hit_invulnerability_duration(),
+            GameConfig.PLAYER_HIT_INVULNERABILITY * GameConfig.PLAYER_HIT_INVULNERABILITY_MAX_MULTIPLIER
+        ),
+        "Sequential-hit protection must remain capped"
+    )
+
+    world.player_invulnerability_timer = 0.0
+    world.time_since_player_damage = GameConfig.PLAYER_HIT_STREAK_WINDOW + 0.01
+    world._apply_player_damage(10.0, true)
+    assert(world.player_hit_streak == 1, "The protection streak must reset after the recovery window")
+    assert(
+        is_equal_approx(world.player_invulnerability_timer, GameConfig.PLAYER_HIT_INVULNERABILITY),
+        "A recovered player must return to the base protection duration"
+    )
 
     world.player_health = 50.0
     world.player_invulnerability_timer = 0.0
     world.player_one_shot_protection_timer = 0.0
+    world.time_since_player_damage = 999.0
     world._apply_player_damage(1000.0, true)
-    assert(not world.is_running, "Exactly 50% health must not qualify for one-shot protection")
+    assert(world.is_running, "A lethal hit at exactly 50% health must trigger one-shot protection")
+    assert(is_equal_approx(world.player_health, 1.0), "One-shot protection must leave the player at exactly 1 HP")
+    assert(world.player_one_shot_protection_timer > 0.0, "One-shot protection must trigger its visible feedback")
+    assert(world.player_invulnerability_timer > 0.0, "One-shot protection must still grant post-hit invulnerability")
+
+    world.player_health = 49.0
+    world.player_invulnerability_timer = 0.0
+    world.player_one_shot_protection_timer = 0.0
+    world.time_since_player_damage = 999.0
+    world._apply_player_damage(1000.0, true)
+    assert(not world.is_running, "A lethal hit below 50% health must not trigger one-shot protection")
     assert(is_equal_approx(world.player_health, 0.0), "An unprotected lethal hit must still end the run")
     world.reset_run()
     _clear_combat_state(world)
