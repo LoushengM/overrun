@@ -28,6 +28,7 @@ func _run() -> void:
     _test_weapon_slots_and_boss_rewards(scene, world, hud)
     _test_targeting_modes(scene, world, hud)
     _test_weapon_firing_rules(world)
+    _test_expanded_weapon_roster(world)
     _test_toroidal_world(world)
 
     audio.stop_all()
@@ -604,6 +605,95 @@ func _test_toroidal_world(world: SimulationWorld) -> void:
     _clear_combat_state(world)
 
 
+# Covers the four weapons added on top of the original roster. Each is driven
+# through its own update entry point with hand-placed targets, so a broken hook
+# fails here instead of silently doing nothing in a run.
+func _test_expanded_weapon_roster(world: SimulationWorld) -> void:
+    world.reset_run()
+    _clear_combat_state(world)
+    world.player_position = Vector2.ZERO
+    world.weapon_damage = GameConfig.NEEDLE_DAMAGE
+
+    # Arc Chain walks outward from its target with per-jump falloff.
+    world.owned_weapons.assign(["needle", "chain"])
+    world._add_enemy(Vector2(200.0, 0.0), 1000.0, 0.0, 0.0, 14.0, 0, SimulationWorld.EnemyKind.NORMAL, Vector2.ZERO)
+    world._add_enemy(Vector2(320.0, 0.0), 1000.0, 0.0, 0.0, 14.0, 0, SimulationWorld.EnemyKind.NORMAL, Vector2.ZERO)
+    world._add_enemy(Vector2(440.0, 0.0), 1000.0, 0.0, 0.0, 14.0, 0, SimulationWorld.EnemyKind.NORMAL, Vector2.ZERO)
+    world.chain_timer = 0.0
+    world._update_chain(0.0)
+    assert(world.hit_targets.size() == world.chain_jumps + 1, "Arc Chain must strike its target plus one enemy per jump")
+    assert(world.hit_damage[1] < world.hit_damage[0], "Arc Chain damage must fall off along the chain")
+    assert(world.chain_hit_scratch.size() == world.hit_targets.size(), "Arc Chain must not strike the same enemy twice in a cast")
+
+    # Flak Burst spreads a cone of pellets on the shared projectile arrays.
+    _clear_combat_state(world)
+    world.owned_weapons.assign(["needle", "flak"])
+    world._add_enemy(Vector2(200.0, 0.0), 1000.0, 0.0, 0.0, 14.0, 0, SimulationWorld.EnemyKind.NORMAL, Vector2.ZERO)
+    world.flak_timer = 0.0
+    world._update_flak(0.0)
+    assert(world.projectile_positions.size() == world.flak_pellets, "Flak Burst must spawn one projectile per pellet")
+    assert(world.projectile_kinds[0] == SimulationWorld.ProjectileKind.FLAK, "Flak Burst must tag its pellets as FLAK")
+    var spread := absf(angle_difference(
+        world.projectile_velocities[0].angle(),
+        world.projectile_velocities[world.flak_pellets - 1].angle()
+    ))
+    assert(spread > 0.01, "Flak Burst pellets must fan across a cone")
+
+    # Orbitals ring the player and respect their contact interval.
+    _clear_combat_state(world)
+    world.owned_weapons.assign(["needle", "orbital"])
+    world._update_orbitals(0.0)
+    assert(world.orbital_positions.size() == world.orbital_count, "Orbital must hold one satellite per count")
+    var orbit_offset := WorldSpace.nearest_image(world.player_position, world.orbital_positions[0]) - world.player_position
+    assert(absf(orbit_offset.length() - world.orbital_radius) < 1.0, "Orbital satellites must sit on the orbit radius")
+    world._add_enemy(world.orbital_positions[0], 1000.0, 0.0, 0.0, 14.0, 0, SimulationWorld.EnemyKind.NORMAL, Vector2.ZERO)
+    world.orbital_hit_timers[0] = 0.0
+    world._update_orbitals(0.0)
+    assert(not world.hit_targets.is_empty(), "Orbital satellites must damage enemies they overlap")
+    assert(world.orbital_hit_timers[0] > 0.0, "Orbital contact must go on cooldown after a hit")
+
+    # Detonator lobs a shell that resolves as an area blast on arrival.
+    _clear_combat_state(world)
+    world.owned_weapons.assign(["needle", "detonator"])
+    world._add_enemy(Vector2(300.0, 0.0), 1000.0, 0.0, 0.0, 14.0, 0, SimulationWorld.EnemyKind.NORMAL, Vector2.ZERO)
+    world._add_enemy(Vector2(300.0, 80.0), 1000.0, 0.0, 0.0, 14.0, 0, SimulationWorld.EnemyKind.NORMAL, Vector2.ZERO)
+    world.detonator_timer = 0.0
+    world._update_detonator(0.0)
+    assert(world.detonator_shell_positions.size() == 1, "Detonator must launch a shell at its target")
+    assert(world.hit_targets.is_empty(), "Detonator must not damage anything before the shell lands")
+    for step in range(240):
+        world._update_detonator_shells(1.0 / 60.0)
+        if world.detonator_shell_positions.is_empty():
+            break
+    assert(world.detonator_shell_positions.is_empty(), "Detonator shells must detonate instead of flying forever")
+    assert(world.hit_targets.size() == 2, "Detonator blasts must damage every enemy inside the radius")
+
+    # Slots stay scarce even though the pool grew to eight.
+    _clear_combat_state(world)
+    world.owned_weapons.assign(["needle", "sniper", "aura", "field"])
+    assert(not world._is_upgrade_eligible("unlock_chain"), "Weapon unlocks must stay blocked once every slot is filled")
+    world.owned_weapons.assign(["needle"])
+    assert(world._is_upgrade_eligible("unlock_orbital"), "Weapon unlocks must be offered while slots remain open")
+
+    # Offense-pity has to see the new weapons or it force-feeds damage picks.
+    var baseline_dps := world._estimated_sustained_dps()
+    for weapon_id in ["chain", "flak", "orbital", "detonator"]:
+        world.owned_weapons.assign(["needle", weapon_id])
+        assert(world._estimated_sustained_dps() > baseline_dps, "Offense-pity must count %s toward sustained DPS" % weapon_id)
+
+    # One guaranteed unlock per reward screen, however many remain unowned.
+    world.owned_weapons.assign(["needle"])
+    for roll in range(12):
+        var unlock_count := 0
+        for option_id in world._roll_weapon_upgrade_options():
+            if GameConfig.WEAPON_UNLOCK_IDS.has(option_id):
+                unlock_count += 1
+        assert(unlock_count <= 1, "Weapon reward screens must offer at most one unlock")
+
+    world.reset_run()
+    _clear_combat_state(world)
+
+
 func _clear_combat_state(world: SimulationWorld) -> void:
     world.enemy_positions.clear()
     world.enemy_health.clear()
@@ -630,6 +720,17 @@ func _clear_combat_state(world: SimulationWorld) -> void:
     world.field_lifetimes.clear()
     world.field_tick_timers.clear()
     world.field_radii.clear()
+    world.orbital_positions.clear()
+    world.orbital_hit_timers.clear()
+    world.detonator_shell_positions.clear()
+    world.detonator_shell_velocities.clear()
+    world.detonator_shell_remaining.clear()
+    world.detonator_shell_lifetimes.clear()
+    world.detonator_blast_positions.clear()
+    world.detonator_blast_radii.clear()
+    world.detonator_blast_timers.clear()
+    world.chain_visual_points.clear()
+    world.chain_hit_scratch.clear()
     world.projectile_candidate_targets.clear()
     world.projectile_candidate_fractions.clear()
     world.hit_targets.clear()

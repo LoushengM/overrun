@@ -108,13 +108,29 @@ const CHARACTERS := {
     },
 }
 
+# Eight weapons against four slots. The cap deliberately stays at 4 while the
+# pool grows: exclusivity is what makes the loadout a decision. Operators that
+# start with a weapon spend one of those four slots on it.
 const WEAPON_SLOT_CAP := 4
-const WEAPON_IDS := ["needle", "sniper", "aura", "field"]
+const WEAPON_IDS := [
+    "needle",
+    "sniper",
+    "aura",
+    "field",
+    "chain",
+    "flak",
+    "orbital",
+    "detonator",
+]
 const WEAPON_NAMES := {
     "needle": "Needle",
     "sniper": "Longshot",
     "aura": "Aura Pulse",
     "field": "Mire Field",
+    "chain": "Arc Chain",
+    "flak": "Flak Burst",
+    "orbital": "Orbital",
+    "detonator": "Detonator",
 }
 
 # Needle: short-range generalist projectile.
@@ -167,6 +183,53 @@ const FIELD_TICK_INTERVAL := 0.50
 const FIELD_SLOW_MULTIPLIER := 0.65
 const FIELD_CAP := 48
 
+# Arc Chain: hits a target then jumps to nearby enemies with per-jump falloff.
+# Damage goes through the fixed-damage queue rather than spawning projectiles,
+# so chain length costs a neighbour scan and nothing in the projectile sweep.
+const CHAIN_DAMAGE := 16.0
+const CHAIN_COOLDOWN := 1.30
+const CHAIN_RANGE := 620.0
+const CHAIN_JUMPS := 2
+const CHAIN_JUMP_RADIUS := 240.0
+const CHAIN_FALLOFF := 0.72
+const CHAIN_VISUAL_DURATION := 0.16
+const CHAIN_MAX_JUMPS := 10
+
+# Flak Burst: a wide cone of short-lived pellets. Close-range shred that falls
+# off hard with distance because the pellets expire quickly.
+const FLAK_DAMAGE := 7.0
+const FLAK_COOLDOWN := 1.05
+const FLAK_PELLETS := 5
+const FLAK_SPREAD_DEGREES := 52.0
+const FLAK_SPEED := 720.0
+const FLAK_LIFETIME := 0.42
+const FLAK_RANGE := 520.0
+const FLAK_RADIUS := 5.0
+
+# Orbital: satellites that circle the player. These live in their own arrays
+# because the shared projectile sweep advances entries by velocity and treats
+# them as line segments; an angular orbit would read as a teleport across the
+# arena and corrupt the segment-vs-circle test.
+const ORBITAL_DAMAGE := 9.0
+const ORBITAL_COUNT := 2
+const ORBITAL_RADIUS := 150.0
+const ORBITAL_ANGULAR_SPEED := 2.60
+const ORBITAL_HIT_RADIUS := 16.0
+const ORBITAL_HIT_INTERVAL := 0.35
+const ORBITAL_CAP := 24
+
+# Detonator: slow lobbed shell that deals area damage where it lands. Reuses the
+# radial damage sweep from fields, but resolves once instead of persisting.
+const DETONATOR_DAMAGE := 34.0
+const DETONATOR_COOLDOWN := 2.60
+const DETONATOR_RANGE := 900.0
+const DETONATOR_SPEED := 430.0
+const DETONATOR_LIFETIME := 2.20
+const DETONATOR_RADIUS := 9.0
+const DETONATOR_BLAST_RADIUS := 165.0
+const DETONATOR_VISUAL_DURATION := 0.22
+const DETONATOR_BLAST_CAP := 32
+
 const GAME_PACE_MULTIPLIER := 2.0
 
 const OFFENSE_PITY_MAX_LEVEL := 30
@@ -176,6 +239,13 @@ const NEEDLE_EXTRA_PROJECTILE_DPS_FACTOR := 0.50
 const AURA_DPS_UPTIME_FACTOR := 0.75
 const FIELD_DPS_OVERLAP_FACTOR := 0.35
 const FIELD_DPS_MAX_EQUIVALENTS := 2.0
+# Offense-pity uptime factors for the expanded roster. Each discounts a weapon's
+# theoretical damage to what it realistically lands in a crowd, so pity does not
+# over-credit an unreliable weapon and starve the player of guaranteed DPS picks.
+const CHAIN_DPS_UPTIME_FACTOR := 0.80
+const FLAK_DPS_UPTIME_FACTOR := 0.55
+const ORBITAL_DPS_UPTIME_FACTOR := 0.60
+const DETONATOR_DPS_UPTIME_FACTOR := 0.70
 
 const ENEMY_CAP := 1450
 const PROJECTILE_CAP := 16384
@@ -325,6 +395,14 @@ const DPS_UPGRADE_IDS := [
     "aura_echoes",
     "field_fire_rate",
     "field_duration",
+    "chain_fire_rate",
+    "chain_jumps",
+    "flak_fire_rate",
+    "flak_pellets",
+    "orbital_count",
+    "orbital_fire_rate",
+    "detonator_fire_rate",
+    "detonator_blast",
 ]
 const UPGRADE_ROLL_WEIGHTS := {
     "max_health": LOW_FREQUENCY_UPGRADE_WEIGHT,
@@ -360,11 +438,42 @@ const FIELD_UPGRADE_IDS := [
     "field_duration",
 ]
 
+const CHAIN_UPGRADE_IDS := [
+    "chain_fire_rate",
+    "chain_jumps",
+    "chain_falloff",
+    "chain_range",
+]
+
+const FLAK_UPGRADE_IDS := [
+    "flak_fire_rate",
+    "flak_pellets",
+    "flak_spread",
+    "flak_range",
+]
+
+const ORBITAL_UPGRADE_IDS := [
+    "orbital_count",
+    "orbital_fire_rate",
+    "orbital_radius",
+    "orbital_size",
+]
+
+const DETONATOR_UPGRADE_IDS := [
+    "detonator_fire_rate",
+    "detonator_blast",
+    "detonator_range",
+]
+
 const WEAPON_UPGRADE_IDS := {
     "needle": NEEDLE_UPGRADE_IDS,
     "sniper": SNIPER_UPGRADE_IDS,
     "aura": AURA_UPGRADE_IDS,
     "field": FIELD_UPGRADE_IDS,
+    "chain": CHAIN_UPGRADE_IDS,
+    "flak": FLAK_UPGRADE_IDS,
+    "orbital": ORBITAL_UPGRADE_IDS,
+    "detonator": DETONATOR_UPGRADE_IDS,
 }
 
 const WEAPON_UPGRADE_CAPS := {
@@ -382,12 +491,31 @@ const WEAPON_UPGRADE_CAPS := {
     "field_fire_rate": 8,
     "field_radius": 6,
     "field_duration": 6,
+    "chain_fire_rate": 8,
+    "chain_jumps": 6,
+    "chain_falloff": 5,
+    "chain_range": 5,
+    "flak_fire_rate": 8,
+    "flak_pellets": 8,
+    "flak_spread": 5,
+    "flak_range": 5,
+    "orbital_count": 8,
+    "orbital_fire_rate": 6,
+    "orbital_radius": 5,
+    "orbital_size": 5,
+    "detonator_fire_rate": 8,
+    "detonator_blast": 6,
+    "detonator_range": 5,
 }
 
 const WEAPON_UNLOCK_IDS := {
     "unlock_sniper": "sniper",
     "unlock_aura": "aura",
     "unlock_field": "field",
+    "unlock_chain": "chain",
+    "unlock_flak": "flak",
+    "unlock_orbital": "orbital",
+    "unlock_detonator": "detonator",
 }
 
 const UPGRADE_NAMES := {
@@ -413,6 +541,25 @@ const UPGRADE_NAMES := {
     "field_fire_rate": "Mire Field — Faster Deployment",
     "field_radius": "Mire Field — Wider Pool",
     "field_duration": "Mire Field — Lingering Mire",
+    "unlock_chain": "New Weapon — Arc Chain",
+    "unlock_flak": "New Weapon — Flak Burst",
+    "unlock_orbital": "New Weapon — Orbital",
+    "unlock_detonator": "New Weapon — Detonator",
+    "chain_fire_rate": "Arc Chain — Rapid Discharge",
+    "chain_jumps": "Arc Chain — Extra Arc",
+    "chain_falloff": "Arc Chain — Stable Current",
+    "chain_range": "Arc Chain — Longer Reach",
+    "flak_fire_rate": "Flak Burst — Faster Reload",
+    "flak_pellets": "Flak Burst — Dense Payload",
+    "flak_spread": "Flak Burst — Tightened Choke",
+    "flak_range": "Flak Burst — Longer Pellets",
+    "orbital_count": "Orbital — Extra Satellite",
+    "orbital_fire_rate": "Orbital — Faster Rotation",
+    "orbital_radius": "Orbital — Wider Orbit",
+    "orbital_size": "Orbital — Heavier Satellites",
+    "detonator_fire_rate": "Detonator — Faster Lob",
+    "detonator_blast": "Detonator — Larger Blast",
+    "detonator_range": "Detonator — Longer Throw",
 }
 
 const UPGRADE_DESCRIPTIONS := {
@@ -438,4 +585,23 @@ const UPGRADE_DESCRIPTIONS := {
     "field_fire_rate": "-10% Mire Field deployment cooldown",
     "field_radius": "+12% Mire Field radius",
     "field_duration": "+0.5 seconds Mire Field duration",
+    "unlock_chain": "Equip lightning that jumps between nearby enemies",
+    "unlock_flak": "Equip a wide close-range burst of pellets",
+    "unlock_orbital": "Equip satellites that circle you and grind contact damage",
+    "unlock_detonator": "Equip a lobbed shell that explodes on impact",
+    "chain_fire_rate": "-11% Arc Chain cooldown",
+    "chain_jumps": "+1 Arc Chain jump",
+    "chain_falloff": "+8% damage retained per Arc Chain jump",
+    "chain_range": "+12% Arc Chain targeting and jump radius",
+    "flak_fire_rate": "-10% Flak Burst cooldown",
+    "flak_pellets": "+1 Flak Burst pellet",
+    "flak_spread": "-12% Flak Burst spread for tighter grouping",
+    "flak_range": "+15% Flak Burst pellet travel and range",
+    "orbital_count": "+1 orbiting satellite",
+    "orbital_fire_rate": "+12% Orbital rotation and contact rate",
+    "orbital_radius": "+12% Orbital orbit radius",
+    "orbital_size": "+20% Orbital satellite size",
+    "detonator_fire_rate": "-10% Detonator cooldown",
+    "detonator_blast": "+12% Detonator blast radius",
+    "detonator_range": "+12% Detonator throw range"
 }

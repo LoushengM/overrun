@@ -16,7 +16,7 @@ const SPRITE_FRAME_COUNT := SPRITE_ATLAS_COLUMNS * SPRITE_ATLAS_ROWS
 enum EnemyKind { NORMAL, BOSS }
 enum EnemyArchetype { GRUNT, SWARMER, SHIELDED, RANGED, SPLITTER, ELITE }
 const ARCHETYPE_COUNT := 6
-enum ProjectileKind { NEEDLE, SNIPER }
+enum ProjectileKind { NEEDLE, SNIPER, FLAK }
 enum TargetingMode { CLOSEST, STRONGEST }
 
 @onready var camera: Camera2D = $Camera2D
@@ -90,6 +90,51 @@ var field_radius := GameConfig.FIELD_RADIUS
 var field_duration := GameConfig.FIELD_DURATION
 var field_timer := 0.70
 var field_spawn_angle := 0.0
+
+var chain_cooldown := GameConfig.CHAIN_COOLDOWN
+var chain_range := GameConfig.CHAIN_RANGE
+var chain_jumps := GameConfig.CHAIN_JUMPS
+var chain_jump_radius := GameConfig.CHAIN_JUMP_RADIUS
+var chain_falloff := GameConfig.CHAIN_FALLOFF
+var chain_timer := 0.45
+var chain_visual_timer := 0.0
+# Reused across chain casts so a jump walk never allocates in the hot path.
+var chain_visual_points: Array[Vector2] = []
+var chain_hit_scratch: Array[int] = []
+
+var flak_cooldown := GameConfig.FLAK_COOLDOWN
+var flak_pellets := GameConfig.FLAK_PELLETS
+var flak_spread := deg_to_rad(GameConfig.FLAK_SPREAD_DEGREES)
+var flak_range := GameConfig.FLAK_RANGE
+var flak_lifetime := GameConfig.FLAK_LIFETIME
+var flak_timer := 0.25
+
+var orbital_count := GameConfig.ORBITAL_COUNT
+var orbital_radius := GameConfig.ORBITAL_RADIUS
+var orbital_angular_speed := GameConfig.ORBITAL_ANGULAR_SPEED
+var orbital_hit_radius := GameConfig.ORBITAL_HIT_RADIUS
+var orbital_hit_interval := GameConfig.ORBITAL_HIT_INTERVAL
+var orbital_angle := 0.0
+# Orbitals keep their own arrays: the shared projectile sweep advances entries
+# by velocity and tests them as line segments, which an angular orbit would
+# read as a teleport across the torus.
+var orbital_positions: Array[Vector2] = []
+var orbital_hit_timers: Array[float] = []
+
+var detonator_cooldown := GameConfig.DETONATOR_COOLDOWN
+var detonator_range := GameConfig.DETONATOR_RANGE
+var detonator_blast_radius := GameConfig.DETONATOR_BLAST_RADIUS
+var detonator_timer := 0.90
+# Shells fly on their own arrays and detonate on arrival rather than riding the
+# shared projectile sweep, which resolves damage at the point of contact and
+# would leave no place to hang an area blast.
+var detonator_shell_positions: Array[Vector2] = []
+var detonator_shell_velocities: Array[Vector2] = []
+var detonator_shell_remaining: Array[float] = []
+var detonator_shell_lifetimes: Array[float] = []
+var detonator_blast_positions: Array[Vector2] = []
+var detonator_blast_radii: Array[float] = []
+var detonator_blast_timers: Array[float] = []
 
 var next_attack_id := 1
 
@@ -274,6 +319,45 @@ func reset_run() -> void:
     field_duration = GameConfig.FIELD_DURATION
     field_timer = 0.70
     field_spawn_angle = 0.0
+
+    chain_cooldown = GameConfig.CHAIN_COOLDOWN
+    chain_range = GameConfig.CHAIN_RANGE
+    chain_jumps = GameConfig.CHAIN_JUMPS
+    chain_jump_radius = GameConfig.CHAIN_JUMP_RADIUS
+    chain_falloff = GameConfig.CHAIN_FALLOFF
+    chain_timer = 0.45
+    chain_visual_timer = 0.0
+    chain_visual_points.clear()
+    chain_hit_scratch.clear()
+
+    flak_cooldown = GameConfig.FLAK_COOLDOWN
+    flak_pellets = GameConfig.FLAK_PELLETS
+    flak_spread = deg_to_rad(GameConfig.FLAK_SPREAD_DEGREES)
+    flak_range = GameConfig.FLAK_RANGE
+    flak_lifetime = GameConfig.FLAK_LIFETIME
+    flak_timer = 0.25
+
+    orbital_count = GameConfig.ORBITAL_COUNT
+    orbital_radius = GameConfig.ORBITAL_RADIUS
+    orbital_angular_speed = GameConfig.ORBITAL_ANGULAR_SPEED
+    orbital_hit_radius = GameConfig.ORBITAL_HIT_RADIUS
+    orbital_hit_interval = GameConfig.ORBITAL_HIT_INTERVAL
+    orbital_angle = 0.0
+    orbital_positions.clear()
+    orbital_hit_timers.clear()
+
+    detonator_cooldown = GameConfig.DETONATOR_COOLDOWN
+    detonator_range = GameConfig.DETONATOR_RANGE
+    detonator_blast_radius = GameConfig.DETONATOR_BLAST_RADIUS
+    detonator_timer = 0.90
+    detonator_shell_positions.clear()
+    detonator_shell_velocities.clear()
+    detonator_shell_remaining.clear()
+    detonator_shell_lifetimes.clear()
+    detonator_blast_positions.clear()
+    detonator_blast_radii.clear()
+    detonator_blast_timers.clear()
+
     next_attack_id = 1
 
     _apply_character()
@@ -520,6 +604,16 @@ func _update_weapons(delta: float) -> void:
         _update_aura(delta)
     if _has_weapon("field"):
         _update_field_launcher(delta)
+    if _has_weapon("chain"):
+        _update_chain(delta)
+    if _has_weapon("flak"):
+        _update_flak(delta)
+    if _has_weapon("orbital"):
+        _update_orbitals(delta)
+    if _has_weapon("detonator"):
+        _update_detonator(delta)
+    _update_detonator_shells(delta)
+    _update_detonator_blasts(delta)
 
 
 func _update_needle(delta: float) -> void:
@@ -657,6 +751,221 @@ func _update_fields(delta: float) -> void:
             var combined_radius := radius + enemy_radii[enemy_index]
             if WorldSpace.distance_squared(field_positions[field_index], enemy_positions[enemy_index]) <= combined_radius * combined_radius:
                 _queue_fixed_damage(enemy_index, damage_instance)
+
+
+# Arc Chain resolves entirely through the fixed-damage queue: one cast walks a
+# short chain of neighbours, so cost scales with jump count rather than with
+# projectile population.
+func _update_chain(delta: float) -> void:
+    chain_visual_timer = maxf(0.0, chain_visual_timer - delta)
+    chain_timer -= delta
+    if chain_timer > 0.0:
+        return
+
+    var target_index := _find_target_enemy(player_position, chain_range)
+    if target_index < 0:
+        chain_timer = 0.10
+        return
+
+    chain_visual_points.clear()
+    chain_hit_scratch.clear()
+    chain_visual_points.append(player_position)
+
+    var damage_instance := _scaled_weapon_damage(GameConfig.CHAIN_DAMAGE)
+    var current_index := target_index
+    var jump_budget := mini(chain_jumps, GameConfig.CHAIN_MAX_JUMPS)
+    for jump in range(jump_budget + 1):
+        if current_index < 0:
+            break
+        _queue_fixed_damage(current_index, damage_instance)
+        chain_hit_scratch.append(current_index)
+        chain_visual_points.append(enemy_positions[current_index])
+        damage_instance *= chain_falloff
+        current_index = _find_chain_jump_target(enemy_positions[current_index])
+
+    chain_visual_timer = GameConfig.CHAIN_VISUAL_DURATION
+    # The new weapons reuse stock cues rather than emitting names with no wav
+    # behind them: SoundManager drops unknown cues silently, which would hide a
+    # missing asset instead of surfacing it.
+    _request_sound("aura_pulse")
+    chain_timer += maxf(0.20, chain_cooldown)
+
+
+func _find_chain_jump_target(origin: Vector2) -> int:
+    var best_index := -1
+    var best_distance_squared := chain_jump_radius * chain_jump_radius
+    for i in range(enemy_positions.size()):
+        if enemy_health[i] - enemy_reserved_damage[i] <= 0.0:
+            continue
+        if chain_hit_scratch.has(i):
+            continue
+        var distance_squared := WorldSpace.distance_squared(origin, enemy_positions[i])
+        if distance_squared < best_distance_squared:
+            best_distance_squared = distance_squared
+            best_index = i
+    return best_index
+
+
+# Flak pellets are ordinary short-lived projectiles, so they ride the shared
+# projectile arrays and cost nothing extra in the sweep.
+func _update_flak(delta: float) -> void:
+    flak_timer -= delta
+    if flak_timer > 0.0:
+        return
+
+    var target_index := _find_target_enemy(player_position, flak_range)
+    if target_index < 0:
+        flak_timer = 0.10
+        return
+
+    var base_direction := WorldSpace.direction(player_position, enemy_positions[target_index])
+    var pellet_count := maxi(1, flak_pellets)
+    var damage_instance := _scaled_weapon_damage(GameConfig.FLAK_DAMAGE)
+    var step := 0.0
+    var start_offset := 0.0
+    if pellet_count > 1:
+        step = flak_spread / float(pellet_count - 1)
+        start_offset = -flak_spread * 0.5
+    var projectile_count_before := projectile_positions.size()
+    for i in range(pellet_count):
+        if projectile_positions.size() >= GameConfig.PROJECTILE_CAP:
+            break
+        _spawn_projectile(
+            base_direction.rotated(start_offset + step * float(i)),
+            damage_instance,
+            GameConfig.FLAK_SPEED,
+            flak_lifetime,
+            GameConfig.FLAK_RADIUS,
+            ProjectileKind.FLAK
+        )
+    if projectile_positions.size() > projectile_count_before:
+        _request_sound("needle_fire")
+    flak_timer += maxf(0.15, flak_cooldown)
+
+
+# Satellites are repositioned from an angle each frame; the enemy scan only runs
+# for a satellite whose contact timer has expired, so idle orbitals are free.
+func _update_orbitals(delta: float) -> void:
+    var desired := clampi(orbital_count, 0, GameConfig.ORBITAL_CAP)
+    while orbital_positions.size() < desired:
+        orbital_positions.append(player_position)
+        orbital_hit_timers.append(0.0)
+    while orbital_positions.size() > desired:
+        orbital_positions.pop_back()
+        orbital_hit_timers.pop_back()
+    if desired <= 0:
+        return
+
+    orbital_angle = fposmod(orbital_angle + orbital_angular_speed * delta, TAU)
+    var angle_step := TAU / float(desired)
+    var damage_instance := _scaled_weapon_damage(GameConfig.ORBITAL_DAMAGE)
+    for i in range(desired):
+        orbital_positions[i] = WorldSpace.wrap_position(
+            player_position + Vector2.from_angle(orbital_angle + angle_step * float(i)) * orbital_radius
+        )
+        orbital_hit_timers[i] -= delta
+        if orbital_hit_timers[i] > 0.0:
+            continue
+
+        var struck := false
+        for enemy_index in range(enemy_positions.size()):
+            if enemy_health[enemy_index] - enemy_reserved_damage[enemy_index] <= 0.0:
+                continue
+            var combined_radius := orbital_hit_radius + enemy_radii[enemy_index]
+            if WorldSpace.distance_squared(orbital_positions[i], enemy_positions[enemy_index]) > combined_radius * combined_radius:
+                continue
+            if _queue_fixed_damage(enemy_index, damage_instance) > 0.0:
+                struck = true
+        if struck:
+            orbital_hit_timers[i] = orbital_hit_interval
+
+
+func _update_detonator(delta: float) -> void:
+    detonator_timer -= delta
+    if detonator_timer > 0.0:
+        return
+
+    var target_index := _find_target_enemy(player_position, detonator_range)
+    if target_index < 0:
+        detonator_timer = 0.12
+        return
+
+    _spawn_detonator_shell(enemy_positions[target_index])
+    detonator_timer += maxf(0.30, detonator_cooldown)
+
+
+func _spawn_detonator_shell(target_position: Vector2) -> void:
+    if detonator_shell_positions.size() >= GameConfig.DETONATOR_BLAST_CAP:
+        return
+    # nearest_image keeps the throw pointed the short way around the torus
+    # instead of across the full map width.
+    var offset := WorldSpace.nearest_image(player_position, target_position) - player_position
+    var travel := offset.length()
+    var direction := Vector2.RIGHT
+    if travel > 0.001:
+        direction = offset / travel
+    var muzzle_offset := GameConfig.PLAYER_RADIUS + GameConfig.DETONATOR_RADIUS + 2.0
+    detonator_shell_positions.append(WorldSpace.wrap_position(player_position + direction * muzzle_offset))
+    detonator_shell_velocities.append(direction * GameConfig.DETONATOR_SPEED)
+    detonator_shell_remaining.append(maxf(0.0, travel - muzzle_offset))
+    detonator_shell_lifetimes.append(GameConfig.DETONATOR_LIFETIME)
+    _request_sound("longshot_fire")
+
+
+func _update_detonator_shells(delta: float) -> void:
+    for i in range(detonator_shell_positions.size() - 1, -1, -1):
+        var step := detonator_shell_velocities[i] * delta
+        detonator_shell_positions[i] = WorldSpace.wrap_position(detonator_shell_positions[i] + step)
+        detonator_shell_remaining[i] -= step.length()
+        detonator_shell_lifetimes[i] -= delta
+        if detonator_shell_remaining[i] > 0.0 and detonator_shell_lifetimes[i] > 0.0:
+            continue
+        _detonate(detonator_shell_positions[i])
+        _remove_detonator_shell(i)
+
+
+func _detonate(position: Vector2) -> void:
+    var damage_instance := _scaled_weapon_damage(GameConfig.DETONATOR_DAMAGE)
+    for enemy_index in range(enemy_positions.size()):
+        if enemy_health[enemy_index] - enemy_reserved_damage[enemy_index] <= 0.0:
+            continue
+        var combined_radius := detonator_blast_radius + enemy_radii[enemy_index]
+        if WorldSpace.distance_squared(position, enemy_positions[enemy_index]) <= combined_radius * combined_radius:
+            _queue_fixed_damage(enemy_index, damage_instance)
+
+    if detonator_blast_positions.size() < GameConfig.DETONATOR_BLAST_CAP:
+        detonator_blast_positions.append(position)
+        detonator_blast_radii.append(detonator_blast_radius)
+        detonator_blast_timers.append(GameConfig.DETONATOR_VISUAL_DURATION)
+    _request_sound("mire_deploy")
+
+
+func _update_detonator_blasts(delta: float) -> void:
+    for i in range(detonator_blast_timers.size() - 1, -1, -1):
+        detonator_blast_timers[i] -= delta
+        if detonator_blast_timers[i] > 0.0:
+            continue
+        var last := detonator_blast_timers.size() - 1
+        if i != last:
+            detonator_blast_positions[i] = detonator_blast_positions[last]
+            detonator_blast_radii[i] = detonator_blast_radii[last]
+            detonator_blast_timers[i] = detonator_blast_timers[last]
+        detonator_blast_positions.pop_back()
+        detonator_blast_radii.pop_back()
+        detonator_blast_timers.pop_back()
+
+
+func _remove_detonator_shell(index: int) -> void:
+    var last := detonator_shell_positions.size() - 1
+    if index != last:
+        detonator_shell_positions[index] = detonator_shell_positions[last]
+        detonator_shell_velocities[index] = detonator_shell_velocities[last]
+        detonator_shell_remaining[index] = detonator_shell_remaining[last]
+        detonator_shell_lifetimes[index] = detonator_shell_lifetimes[last]
+    detonator_shell_positions.pop_back()
+    detonator_shell_velocities.pop_back()
+    detonator_shell_remaining.pop_back()
+    detonator_shell_lifetimes.pop_back()
 
 
 func _spawn_projectile(
@@ -1377,6 +1686,39 @@ func apply_upgrade(upgrade_id: String) -> void:
                 field_radius *= 1.12
             "field_duration":
                 field_duration += 0.50
+            "chain_fire_rate":
+                chain_cooldown = maxf(0.20, chain_cooldown * 0.89)
+            "chain_jumps":
+                chain_jumps = mini(GameConfig.CHAIN_MAX_JUMPS, chain_jumps + 1)
+            "chain_falloff":
+                chain_falloff = minf(0.95, chain_falloff + 0.08)
+            "chain_range":
+                chain_range *= 1.12
+                chain_jump_radius *= 1.12
+            "flak_fire_rate":
+                flak_cooldown = maxf(0.15, flak_cooldown * 0.90)
+            "flak_pellets":
+                flak_pellets += 1
+            "flak_spread":
+                flak_spread = maxf(deg_to_rad(12.0), flak_spread * 0.88)
+            "flak_range":
+                flak_range *= 1.15
+                flak_lifetime *= 1.15
+            "orbital_count":
+                orbital_count = mini(GameConfig.ORBITAL_CAP, orbital_count + 1)
+            "orbital_fire_rate":
+                orbital_angular_speed *= 1.12
+                orbital_hit_interval = maxf(0.12, orbital_hit_interval * 0.90)
+            "orbital_radius":
+                orbital_radius *= 1.12
+            "orbital_size":
+                orbital_hit_radius *= 1.20
+            "detonator_fire_rate":
+                detonator_cooldown = maxf(0.30, detonator_cooldown * 0.90)
+            "detonator_blast":
+                detonator_blast_radius *= 1.12
+            "detonator_range":
+                detonator_range *= 1.12
             _:
                 return
 
@@ -1475,15 +1817,15 @@ func _roll_weapon_upgrade_options() -> Array[String]:
         if _is_upgrade_eligible(unlock_id):
             unlock_pool.append(unlock_id)
 
+    # Unlocks stay out of the weighted pool: exactly one is offered per screen,
+    # no matter how many weapons remain unowned. With seven unlockables, leaving
+    # the rest in the pool turned reward screens into an all-unlock menu.
     var pool: Array[String] = _eligible_owned_weapon_upgrades()
-    pool.append_array(unlock_pool)
     var options: Array[String] = []
 
     if not unlock_pool.is_empty():
         unlock_pool.shuffle()
-        var guaranteed_unlock: String = unlock_pool.pop_back()
-        options.append(guaranteed_unlock)
-        pool.erase(guaranteed_unlock)
+        options.append(unlock_pool.pop_back())
 
     while options.size() < 3 and not pool.is_empty():
         options.append(_take_weighted_upgrade(pool))
@@ -1534,6 +1876,45 @@ func _estimated_sustained_dps() -> float:
             _scaled_weapon_damage(GameConfig.FIELD_DAMAGE)
             / GameConfig.FIELD_TICK_INTERVAL
             * field_equivalents
+        )
+
+    # Each new weapon needs its own branch here or offense-pity under-counts a
+    # player who invested in it and keeps force-feeding damage upgrades.
+    if _has_weapon("chain"):
+        # Geometric falloff over the jump chain: 1 + f + f^2 + ... + f^jumps.
+        var chain_multiplier := 1.0
+        var jump_scale := 1.0
+        for jump in range(mini(chain_jumps, GameConfig.CHAIN_MAX_JUMPS)):
+            jump_scale *= chain_falloff
+            chain_multiplier += jump_scale
+        total_dps += (
+            _scaled_weapon_damage(GameConfig.CHAIN_DAMAGE)
+            * chain_multiplier
+            / maxf(0.01, chain_cooldown)
+            * GameConfig.CHAIN_DPS_UPTIME_FACTOR
+        )
+
+    if _has_weapon("flak"):
+        total_dps += (
+            _scaled_weapon_damage(GameConfig.FLAK_DAMAGE)
+            * float(maxi(1, flak_pellets))
+            / maxf(0.01, flak_cooldown)
+            * GameConfig.FLAK_DPS_UPTIME_FACTOR
+        )
+
+    if _has_weapon("orbital"):
+        total_dps += (
+            _scaled_weapon_damage(GameConfig.ORBITAL_DAMAGE)
+            * float(clampi(orbital_count, 0, GameConfig.ORBITAL_CAP))
+            / maxf(0.01, orbital_hit_interval)
+            * GameConfig.ORBITAL_DPS_UPTIME_FACTOR
+        )
+
+    if _has_weapon("detonator"):
+        total_dps += (
+            _scaled_weapon_damage(GameConfig.DETONATOR_DAMAGE)
+            / maxf(0.01, detonator_cooldown)
+            * GameConfig.DETONATOR_DPS_UPTIME_FACTOR
         )
 
     return total_dps
@@ -1969,8 +2350,11 @@ func _update_render_batches() -> void:
         projectile_transform.origin = position
         projectile_multimesh.set_instance_transform_2d(projectile_count, projectile_transform)
         var projectile_color := Color(0.55, 0.95, 1.0, 1.0)
-        if projectile_kinds[projectile_index] == ProjectileKind.SNIPER:
-            projectile_color = Color(1.0, 0.78, 0.22, 1.0)
+        match projectile_kinds[projectile_index]:
+            ProjectileKind.SNIPER:
+                projectile_color = Color(1.0, 0.78, 0.22, 1.0)
+            ProjectileKind.FLAK:
+                projectile_color = Color(1.0, 0.55, 0.30, 1.0)
         projectile_multimesh.set_instance_color(projectile_count, projectile_color)
         projectile_count += 1
     projectile_multimesh.visible_instance_count = projectile_count
@@ -1999,6 +2383,20 @@ func _draw() -> void:
         var shot_position := WorldSpace.nearest_image(player_position, raw_shot_position)
         if _is_near_view(shot_position, visible_half):
             draw_circle(shot_position, GameConfig.ARCHETYPE_RANGED_SHOT_RADIUS, Color(1.0, 0.35, 0.25, 0.95))
+
+    for blast_index in range(detonator_blast_positions.size()):
+        var blast_position := WorldSpace.nearest_image(player_position, detonator_blast_positions[blast_index])
+        if not _is_near_view(blast_position, visible_half + Vector2(200.0, 200.0)):
+            continue
+        var blast_fraction := 1.0 - detonator_blast_timers[blast_index] / GameConfig.DETONATOR_VISUAL_DURATION
+        var blast_radius := detonator_blast_radii[blast_index] * clampf(0.45 + 0.55 * blast_fraction, 0.0, 1.0)
+        draw_circle(blast_position, blast_radius, Color(1.0, 0.62, 0.20, 0.30 * (1.0 - blast_fraction)))
+        draw_arc(blast_position, blast_radius, 0.0, TAU, 48, Color(1.0, 0.82, 0.34, 1.0 - blast_fraction), 4.0)
+
+    for shell_index in range(detonator_shell_positions.size()):
+        var shell_position := WorldSpace.nearest_image(player_position, detonator_shell_positions[shell_index])
+        if _is_near_view(shell_position, visible_half):
+            draw_circle(shell_position, GameConfig.DETONATOR_RADIUS, Color(1.0, 0.72, 0.26, 0.95))
 
     if normal_enemy_multimesh != null and sprite_atlas_texture != null:
         draw_multimesh(normal_enemy_multimesh, sprite_atlas_texture)
@@ -2040,6 +2438,21 @@ func _draw() -> void:
 
     if projectile_multimesh != null and circle_texture != null:
         draw_multimesh(projectile_multimesh, circle_texture)
+
+    for orbital_index in range(orbital_positions.size()):
+        var orbital_position := WorldSpace.nearest_image(player_position, orbital_positions[orbital_index])
+        if not _is_near_view(orbital_position, visible_half):
+            continue
+        draw_circle(orbital_position, orbital_hit_radius, Color(0.45, 0.85, 1.0, 0.85))
+        draw_arc(orbital_position, orbital_hit_radius, 0.0, TAU, 20, Color(0.85, 0.97, 1.0, 0.95), 2.0)
+
+    if chain_visual_timer > 0.0 and chain_visual_points.size() > 1:
+        var chain_fade := chain_visual_timer / GameConfig.CHAIN_VISUAL_DURATION
+        var chain_color := Color(0.65, 0.85, 1.0, chain_fade)
+        for link_index in range(chain_visual_points.size() - 1):
+            var link_start := WorldSpace.nearest_image(player_position, chain_visual_points[link_index])
+            var link_end := WorldSpace.nearest_image(link_start, chain_visual_points[link_index + 1])
+            draw_line(link_start, link_end, chain_color, 3.0)
 
     if aura_visual_timer > 0.0:
         var aura_fraction := 1.0 - aura_visual_timer / GameConfig.AURA_VISUAL_DURATION
