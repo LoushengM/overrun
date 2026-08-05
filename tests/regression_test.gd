@@ -142,13 +142,21 @@ func _test_visual_overhaul_assets(world: SimulationWorld, hud: GameHud) -> void:
     assert(world.sprite_atlas_texture != null, "The robot enemy atlas must load")
     assert(world.sprite_atlas_texture.get_size() == Vector2(192, 96), "The robot atlas must keep eight 48px frames")
     var robot_atlas_image := world.sprite_atlas_texture.get_image()
-    var ranged_glow_pixels := 0
+    var ranged_red_pixels := 0
+    var ranged_strong_red_pixels := 0
+    var ranged_opaque_red_pixels := 0
     for y in range(48):
         for x in range(48 * 3, 48 * 4):
             var pixel := robot_atlas_image.get_pixel(x, y)
-            if pixel.a > 0.002 and pixel.a < 0.50 and pixel.r > pixel.g * 3.0 and pixel.r > pixel.b * 3.0:
-                ranged_glow_pixels += 1
-    assert(ranged_glow_pixels >= 120, "Ranged robots must retain a broad translucent red warning glow")
+            if pixel.a > 0.002 and pixel.r > pixel.g * 3.0 and pixel.r > pixel.b * 3.0:
+                ranged_red_pixels += 1
+                if pixel.a >= 0.65:
+                    ranged_strong_red_pixels += 1
+                if pixel.a >= 0.95:
+                    ranged_opaque_red_pixels += 1
+    assert(ranged_red_pixels >= 800, "Ranged robots must retain a broad red warning halo")
+    assert(ranged_strong_red_pixels >= 250, "The ranged warning halo must stay visible against the floor")
+    assert(ranged_opaque_red_pixels >= 120, "Ranged robots must retain a solid red silhouette rim")
     var ranged_muzzle := robot_atlas_image.get_pixel(48 * 3 + 45, 24)
     assert(ranged_muzzle.r > 0.90 and ranged_muzzle.g < 0.45, "The ranged robot muzzle must emit red rather than cyan")
 

@@ -39,6 +39,7 @@ func _init() -> void:
         _draw_frame(image, origin, frame_index)
         _outline_frame(image, origin)
         if frame_index == 3:
+            _draw_ranged_warning_rim(image, origin)
             _draw_ranged_glow(image, origin)
 
     var path := ProjectSettings.globalize_path("res://assets/robots.png")
@@ -134,14 +135,30 @@ func _draw_ranged(image: Image, origin: Vector2i) -> void:
     _rect(image, origin, Rect2i(29, 29, 6, 3), HAZARD)
 
 
-# The glow is added after outlining so the soft halo remains translucent and
-# does not acquire a dark pixel border. Only empty atlas pixels are tinted,
-# preserving the robot silhouette while making ranged threats readable at a
-# glance in dense crowds.
+# A two-pixel warning rim guarantees the ranged silhouette reads red even when
+# the soft halo blends into a busy floor. The first pass is opaque and the outer
+# pass stays translucent, creating a clear edge without another draw call.
+func _draw_ranged_warning_rim(image: Image, origin: Vector2i) -> void:
+    for pass_index in range(2):
+        var pending: Array[Vector2i] = []
+        for y in range(FRAME_SIZE):
+            for x in range(FRAME_SIZE):
+                if image.get_pixel(origin.x + x, origin.y + y).a > 0.0:
+                    continue
+                if _has_opaque_neighbour(image, origin, x, y):
+                    pending.append(Vector2i(x, y))
+        var rim_color := Color("ff2b20") if pass_index == 0 else Color(1.0, 0.03, 0.01, 0.72)
+        for point in pending:
+            image.set_pixel(origin.x + point.x, origin.y + point.y, rim_color)
+
+
+# The glow is added after the warning rim so it only fills untouched background
+# pixels. Stronger alpha and wider overlapping lobes make the halo visible at
+# gameplay scale while keeping all ranged robots in the existing atlas batch.
 func _draw_ranged_glow(image: Image, origin: Vector2i) -> void:
-    _glow_circle(image, origin, Vector2i(23, 23), 20, Color(1.0, 0.05, 0.02, 0.34))
-    _glow_circle(image, origin, Vector2i(38, 24), 12, Color(1.0, 0.03, 0.01, 0.40))
-    _glow_circle(image, origin, Vector2i(22, 5), 7, Color(1.0, 0.08, 0.03, 0.30))
+    _glow_circle(image, origin, Vector2i(23, 23), 24, Color(1.0, 0.02, 0.01, 0.72))
+    _glow_circle(image, origin, Vector2i(39, 24), 15, Color(1.0, 0.01, 0.00, 0.78))
+    _glow_circle(image, origin, Vector2i(22, 5), 10, Color(1.0, 0.04, 0.01, 0.64))
 
 
 func _draw_splitter(image: Image, origin: Vector2i) -> void:
