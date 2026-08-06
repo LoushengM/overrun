@@ -205,6 +205,7 @@ var projectile_attack_ids: Array[int] = []
 var projectile_radii: Array[float] = []
 var projectile_kinds: Array[int] = []
 var projectile_per_target_damage: Array[float] = []
+var projectile_boss_passthroughs: Array[bool] = []
 var projectile_homing_strengths: Array[float] = []
 var projectile_homing_aim_positions: Array[Vector2] = []
 var projectile_homing_refresh_timers: Array[float] = []
@@ -305,6 +306,7 @@ func reset_run() -> void:
     projectile_radii.clear()
     projectile_kinds.clear()
     projectile_per_target_damage.clear()
+    projectile_boss_passthroughs.clear()
     projectile_homing_strengths.clear()
     projectile_homing_aim_positions.clear()
     projectile_homing_refresh_timers.clear()
@@ -1250,6 +1252,10 @@ func _spawn_projectile(
     projectile_radii.append(resolved_radius)
     projectile_kinds.append(kind)
     projectile_per_target_damage.append(resolved_per_target_damage)
+    projectile_boss_passthroughs.append(
+        resolved_damage > resolved_per_target_damage + 0.0001
+        and kind in [ProjectileKind.NEEDLE, ProjectileKind.SNIPER]
+    )
     var homing_strength := needle_homing_strength if kind == ProjectileKind.NEEDLE else 0.0
     var has_initial_homing_target := (
         homing_strength > 0.0
@@ -1369,7 +1375,19 @@ func _update_projectiles(delta: float) -> void:
             hit_targets.append(enemy_index)
             hit_damage.append(damage_value)
             enemy_reserved_damage[enemy_index] += damage_value
-            projectile_remaining_damage[projectile_index] -= raw_damage_spent
+            var boss_pass_through := (
+                enemy_kinds[enemy_index] == EnemyKind.BOSS
+                and projectile_boss_passthroughs[projectile_index]
+            )
+            if boss_pass_through:
+                var projectile_speed := projectile_velocities[projectile_index].length()
+                if projectile_speed > 0.001:
+                    projectile_lifetimes[projectile_index] = maxf(
+                        projectile_lifetimes[projectile_index],
+                        GameConfig.BOSS_PROJECTILE_PASS_THROUGH_DISTANCE / projectile_speed
+                    )
+            else:
+                projectile_remaining_damage[projectile_index] -= raw_damage_spent
             if projectile_kinds[projectile_index] == ProjectileKind.NEEDLE:
                 projectile_homing_refresh_timers[projectile_index] = 0.0
                 projectile_homing_has_targets[projectile_index] = false
@@ -2801,6 +2819,7 @@ func _remove_projectile(index: int) -> void:
         projectile_radii[index] = projectile_radii[last]
         projectile_kinds[index] = projectile_kinds[last]
         projectile_per_target_damage[index] = projectile_per_target_damage[last]
+        projectile_boss_passthroughs[index] = projectile_boss_passthroughs[last]
         projectile_homing_strengths[index] = projectile_homing_strengths[last]
         projectile_homing_aim_positions[index] = projectile_homing_aim_positions[last]
         projectile_homing_refresh_timers[index] = projectile_homing_refresh_timers[last]
@@ -2813,6 +2832,7 @@ func _remove_projectile(index: int) -> void:
     projectile_radii.pop_back()
     projectile_kinds.pop_back()
     projectile_per_target_damage.pop_back()
+    projectile_boss_passthroughs.pop_back()
     projectile_homing_strengths.pop_back()
     projectile_homing_aim_positions.pop_back()
     projectile_homing_refresh_timers.pop_back()

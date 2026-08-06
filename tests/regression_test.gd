@@ -489,23 +489,74 @@ func _test_projectile_damage_conservation(world: SimulationWorld) -> void:
     world._spawn_projectile(Vector2.RIGHT)
     assert(is_equal_approx(world.projectile_remaining_damage[0], 20.0), "Needle pierce must add one full damage budget")
 
-    # A high-health boss may consume one hit, but must not swallow the entire
-    # pierce budget and stop the projectile from reaching the next body.
+    # Zero-pierce shots still stop on a boss. Boss transparency belongs to the
+    # pierce upgrade rather than being a free property of every projectile.
     _clear_combat_state(world)
     world.weapon_damage = 10.0
-    world.weapon_pierce = 1
+    world.weapon_pierce = 0
     world._add_enemy(Vector2(80.0, 0.0), 1000.0, 0.0, 0.0, 42.0, 20, SimulationWorld.EnemyKind.BOSS, Vector2.ZERO)
-    world._add_enemy(Vector2(155.0, 0.0), 10.0, 0.0, 0.0, 14.0, 1, SimulationWorld.EnemyKind.NORMAL, Vector2.ZERO)
     world._spawn_projectile(Vector2.RIGHT)
+    assert(not world.projectile_boss_passthroughs[0], "A zero-pierce Needle must not gain boss transparency")
     world._rebuild_enemy_grid()
     world.hit_targets.clear()
     world.hit_damage.clear()
-    world._update_projectiles(0.20)
-    assert(world.hit_targets == [0, 1], "A piercing Needle must continue through a boss into the next enemy")
-    assert(world.hit_damage.size() == 2, "A boss and the following enemy must each receive one Needle hit")
-    assert(is_equal_approx(world.hit_damage[0], 10.0), "A boss must consume only one Needle hit budget")
-    assert(is_equal_approx(world.hit_damage[1], 10.0), "Needle pierce must retain one full hit after crossing a boss")
-    assert(world.projectile_positions.is_empty(), "A two-hit Needle must expire after spending both hit budgets")
+    world._update_projectiles(0.12)
+    assert(world.hit_targets == [0], "A zero-pierce Needle must still damage the boss once")
+    assert(world.projectile_positions.is_empty(), "A zero-pierce Needle must stop after spending its only hit on a boss")
+
+    # Reproduce the real failure case: at 0.90 seconds of base lifetime, a
+    # distant homing Needle previously reached the boss with too little travel
+    # time left to visibly clear it or use +2 pierce. A piercing shot now treats
+    # the boss as transparent, preserves all budgets, refreshes a bounded travel
+    # distance, and reacquires the body behind it.
+    _clear_combat_state(world)
+    world.player_position = Vector2.ZERO
+    world.weapon_damage = 10.0
+    world.weapon_pierce = 2
+    world.needle_homing_strength = 0.40
+    world.weapon_targeting_modes["needle"] = SimulationWorld.TargetingMode.STRONGEST
+    world._add_enemy(Vector2(600.0, 150.0), 5000.0, 0.0, 0.0, 42.0, 20, SimulationWorld.EnemyKind.BOSS, Vector2.ZERO)
+    world._add_enemy(Vector2(900.0, 265.0), 1000.0, 0.0, 0.0, 14.0, 1, SimulationWorld.EnemyKind.NORMAL, Vector2.ZERO)
+    world._spawn_projectile(
+        Vector2.RIGHT,
+        -1.0,
+        -1.0,
+        -1.0,
+        -1.0,
+        SimulationWorld.ProjectileKind.NEEDLE,
+        0
+    )
+    assert(world.projectile_boss_passthroughs[0], "+2 pierce must snapshot boss transparency")
+    var boss_hit_count := 0
+    var trailing_enemy_hit_count := 0
+    var boss_hit_budget_after := -1.0
+    var boss_hit_lifetime_after := -1.0
+    for tick in range(90):
+        world.hit_targets.clear()
+        world.hit_damage.clear()
+        world._rebuild_enemy_grid()
+        world._update_projectiles(1.0 / 60.0)
+        for hit_index in range(world.hit_targets.size()):
+            var target_index := world.hit_targets[hit_index]
+            if target_index == 0:
+                boss_hit_count += 1
+                assert(is_equal_approx(world.hit_damage[hit_index], 10.0), "A piercing Needle must apply exactly one base hit to a boss")
+                boss_hit_budget_after = world.projectile_remaining_damage[0]
+                boss_hit_lifetime_after = world.projectile_lifetimes[0]
+            elif target_index == 1:
+                trailing_enemy_hit_count += 1
+        world._resolve_hits()
+        if trailing_enemy_hit_count > 0:
+            break
+    assert(boss_hit_count == 1, "A homing Needle must not loop back and apply multiple pierce instances to the same boss")
+    assert(is_equal_approx(boss_hit_budget_after, 30.0), "A boss must consume none of a +2 Needle's three hit budgets")
+    assert(
+        boss_hit_lifetime_after >= GameConfig.BOSS_PROJECTILE_PASS_THROUGH_DISTANCE / GameConfig.NEEDLE_SPEED - 0.001,
+        "A piercing Needle must retain enough post-boss lifetime to visibly pass through"
+    )
+    assert(trailing_enemy_hit_count == 1, "The homing Needle must reacquire and hit the enemy behind the boss")
+    assert(not world.projectile_positions.is_empty(), "The +2 Needle must survive after the boss and one normal hit")
+    assert(is_equal_approx(world.projectile_remaining_damage[0], 20.0), "Only the normal enemy may consume one of the +2 Needle's hit budgets")
 
     _clear_combat_state(world)
     world.weapon_damage = GameConfig.NEEDLE_DAMAGE
@@ -521,14 +572,16 @@ func _test_projectile_damage_conservation(world: SimulationWorld) -> void:
         GameConfig.SNIPER_RADIUS,
         SimulationWorld.ProjectileKind.SNIPER
     )
+    assert(world.projectile_boss_passthroughs[0], "A piercing Longshot must snapshot boss transparency")
     world._rebuild_enemy_grid()
     world.hit_targets.clear()
     world.hit_damage.clear()
     world._update_projectiles(0.16)
-    assert(world.hit_targets == [0, 1], "A piercing Longshot must continue through a boss into the next enemy")
-    assert(is_equal_approx(world.hit_damage[0], longshot_hit), "A boss must consume only one Longshot hit budget")
-    assert(is_equal_approx(world.hit_damage[1], longshot_hit), "Longshot pierce must retain one full hit after crossing a boss")
-    assert(world.projectile_positions.is_empty(), "A two-hit Longshot must expire after spending both hit budgets")
+    assert(world.hit_targets == [0, 1], "A piercing Longshot must pass through a boss into the next enemy")
+    assert(is_equal_approx(world.hit_damage[0], longshot_hit), "A boss must receive exactly one Longshot damage instance")
+    assert(is_equal_approx(world.hit_damage[1], longshot_hit), "The following enemy must receive one Longshot hit")
+    assert(not world.projectile_positions.is_empty(), "The Longshot must retain its second hit budget after crossing a boss")
+    assert(is_equal_approx(world.projectile_remaining_damage[0], longshot_hit), "Only the normal enemy may consume Longshot pierce budget")
 
 
 func _test_offense_pity(world: SimulationWorld) -> void:
@@ -1572,6 +1625,7 @@ func _clear_combat_state(world: SimulationWorld) -> void:
     world.projectile_radii.clear()
     world.projectile_kinds.clear()
     world.projectile_per_target_damage.clear()
+    world.projectile_boss_passthroughs.clear()
     world.projectile_homing_strengths.clear()
     world.projectile_homing_aim_positions.clear()
     world.projectile_homing_refresh_timers.clear()
