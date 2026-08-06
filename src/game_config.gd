@@ -372,7 +372,6 @@ const BOSS_HEALTH_SCALE_LINEAR := 1.0
 const BOSS_HEALTH_SCALE_QUADRATIC := 0.20
 const BOSS_HIT_PROTECTION_DURATION := 0.35
 const BOSS_HIT_PROTECTION_DAMAGE_MULTIPLIER := 0.20
-const BOSS_PROJECTILE_PASS_THROUGH_DISTANCE := 520.0
 const BOSS_SPEED := 58.0
 const BOSS_SPEED_SCALE_PER_MINUTE := 0.025
 const BOSS_DAMAGE := 28.0
@@ -596,8 +595,8 @@ const UPGRADE_DESCRIPTIONS := {
     "unlock_field": "Equip persistent slowing damage zones",
     "needle_homing": "+10% Needle homing strength (10/20/30/40%)",
     "needle_projectile_count": "+1 Needle projectile per attack",
-    "needle_pierce": "+1 Needle hit; piercing shots pass through bosses (max 4)",
-    "sniper_pierce": "+1 Longshot hit; piercing shots pass through bosses (max 4)",
+    "needle_pierce": "+1 Needle hit budget; bosses consume exactly one (max 4)",
+    "sniper_pierce": "+1 Longshot hit budget; bosses consume exactly one (max 4)",
     "sniper_range": "+12% Longshot targeting and travel range",
     "sniper_size": "+45% Longshot collision radius; the projectile visibly grows",
     "aura_radius": "+12% Aura Pulse radius",
@@ -607,7 +606,7 @@ const UPGRADE_DESCRIPTIONS := {
     "unlock_chain": "Equip lightning that jumps between nearby enemies",
     "unlock_flak": "Equip a wide close-range burst of pellets",
     "unlock_orbital": "Equip satellites that circle you and grind contact damage",
-    "unlock_detonator": "Equip a lobbed shell that explodes on impact",
+    "unlock_detonator": "Equip a shell that explodes on first impact or at its aim point",
     "chain_jumps": "+1 Arc Chain jump",
     "chain_falloff": "+8% damage retained per Arc Chain jump",
     "chain_range": "+12% Arc Chain targeting and jump radius",

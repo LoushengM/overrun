@@ -489,34 +489,63 @@ func _test_projectile_damage_conservation(world: SimulationWorld) -> void:
     world._spawn_projectile(Vector2.RIGHT)
     assert(is_equal_approx(world.projectile_remaining_damage[0], 20.0), "Needle pierce must add one full damage budget")
 
-    # Zero-pierce shots still stop on a boss. Boss transparency belongs to the
-    # pierce upgrade rather than being a free property of every projectile.
+    # A zero-pierce shot spends its only hit budget on a boss and stops.
     _clear_combat_state(world)
     world.weapon_damage = 10.0
     world.weapon_pierce = 0
     world._add_enemy(Vector2(80.0, 0.0), 1000.0, 0.0, 0.0, 42.0, 20, SimulationWorld.EnemyKind.BOSS, Vector2.ZERO)
     world._spawn_projectile(Vector2.RIGHT)
-    assert(not world.projectile_boss_passthroughs[0], "A zero-pierce Needle must not gain boss transparency")
     world._rebuild_enemy_grid()
     world.hit_targets.clear()
     world.hit_damage.clear()
     world._update_projectiles(0.12)
-    assert(world.hit_targets == [0], "A zero-pierce Needle must still damage the boss once")
-    assert(world.projectile_positions.is_empty(), "A zero-pierce Needle must stop after spending its only hit on a boss")
+    assert(world.hit_targets == [0], "A zero-pierce Needle must damage the boss once")
+    assert(world.projectile_positions.is_empty(), "A zero-pierce Needle must stop after spending its only hit budget")
 
-    # Reproduce the real failure case: at 0.90 seconds of base lifetime, a
-    # distant homing Needle previously reached the boss with too little travel
-    # time left to visibly clear it or use +2 pierce. A piercing shot now treats
-    # the boss as transparent, preserves all budgets, refreshes a bounded travel
-    # distance, and reacquires the body behind it.
+    # Reproduce the close-range volley bug. The old per-enemy marker held only
+    # one projectile ID, so five overlapping Needles overwrote one another and
+    # each hit the same boss again on later ticks until every +2 budget vanished.
     _clear_combat_state(world)
     world.player_position = Vector2.ZERO
     world.weapon_damage = 10.0
     world.weapon_pierce = 2
+    world.weapon_projectile_count = 5
     world.needle_homing_strength = 0.40
     world.weapon_targeting_modes["needle"] = SimulationWorld.TargetingMode.STRONGEST
-    world._add_enemy(Vector2(600.0, 150.0), 5000.0, 0.0, 0.0, 42.0, 20, SimulationWorld.EnemyKind.BOSS, Vector2.ZERO)
-    world._add_enemy(Vector2(900.0, 265.0), 1000.0, 0.0, 0.0, 14.0, 1, SimulationWorld.EnemyKind.NORMAL, Vector2.ZERO)
+    world._add_enemy(Vector2(100.0, 0.0), 5000.0, 0.0, 0.0, 42.0, 20, SimulationWorld.EnemyKind.BOSS, Vector2.ZERO)
+    world.needle_timer = 0.0
+    world._update_needle(0.0)
+    assert(world.projectile_positions.size() == 5, "The close-range test must fire a five-Needle volley")
+    var close_boss_hit_count := 0
+    for tick in range(10):
+        world.hit_targets.clear()
+        world.hit_damage.clear()
+        world._rebuild_enemy_grid()
+        world._update_projectiles(1.0 / 60.0)
+        for target_index in world.hit_targets:
+            if target_index == 0:
+                close_boss_hit_count += 1
+        world._resolve_hits()
+    assert(close_boss_hit_count == 5, "Each Needle in an overlapping volley must hit the boss exactly once")
+    assert(world.projectile_positions.size() == 5, "+2 Needles must survive after crossing one close boss")
+    for projectile_index in range(world.projectile_positions.size()):
+        assert(
+            is_equal_approx(world.projectile_remaining_damage[projectile_index], 20.0),
+            "A boss must consume exactly one of each +2 Needle's three hit budgets"
+        )
+        assert(world.projectile_hit_enemy_ids[projectile_index].size() == 1, "Each Needle must retain its own boss hit history")
+
+    # Homing must exclude the boss already hit, pass through it, and spend the
+    # next budget on a different body rather than looping back into the boss.
+    _clear_combat_state(world)
+    world.player_position = Vector2.ZERO
+    world.weapon_damage = 10.0
+    world.weapon_pierce = 2
+    world.weapon_projectile_count = 1
+    world.needle_homing_strength = 0.40
+    world.weapon_targeting_modes["needle"] = SimulationWorld.TargetingMode.STRONGEST
+    world._add_enemy(Vector2(100.0, 0.0), 5000.0, 0.0, 0.0, 42.0, 20, SimulationWorld.EnemyKind.BOSS, Vector2.ZERO)
+    world._add_enemy(Vector2(230.0, 20.0), 1000.0, 0.0, 0.0, 14.0, 1, SimulationWorld.EnemyKind.NORMAL, Vector2.ZERO)
     world._spawn_projectile(
         Vector2.RIGHT,
         -1.0,
@@ -526,37 +555,25 @@ func _test_projectile_damage_conservation(world: SimulationWorld) -> void:
         SimulationWorld.ProjectileKind.NEEDLE,
         0
     )
-    assert(world.projectile_boss_passthroughs[0], "+2 pierce must snapshot boss transparency")
-    var boss_hit_count := 0
-    var trailing_enemy_hit_count := 0
-    var boss_hit_budget_after := -1.0
-    var boss_hit_lifetime_after := -1.0
-    for tick in range(90):
+    var homing_boss_hits := 0
+    var trailing_enemy_hits := 0
+    for tick in range(45):
         world.hit_targets.clear()
         world.hit_damage.clear()
         world._rebuild_enemy_grid()
         world._update_projectiles(1.0 / 60.0)
-        for hit_index in range(world.hit_targets.size()):
-            var target_index := world.hit_targets[hit_index]
+        for target_index in world.hit_targets:
             if target_index == 0:
-                boss_hit_count += 1
-                assert(is_equal_approx(world.hit_damage[hit_index], 10.0), "A piercing Needle must apply exactly one base hit to a boss")
-                boss_hit_budget_after = world.projectile_remaining_damage[0]
-                boss_hit_lifetime_after = world.projectile_lifetimes[0]
+                homing_boss_hits += 1
             elif target_index == 1:
-                trailing_enemy_hit_count += 1
+                trailing_enemy_hits += 1
         world._resolve_hits()
-        if trailing_enemy_hit_count > 0:
+        if trailing_enemy_hits > 0:
             break
-    assert(boss_hit_count == 1, "A homing Needle must not loop back and apply multiple pierce instances to the same boss")
-    assert(is_equal_approx(boss_hit_budget_after, 30.0), "A boss must consume none of a +2 Needle's three hit budgets")
-    assert(
-        boss_hit_lifetime_after >= GameConfig.BOSS_PROJECTILE_PASS_THROUGH_DISTANCE / GameConfig.NEEDLE_SPEED - 0.001,
-        "A piercing Needle must retain enough post-boss lifetime to visibly pass through"
-    )
-    assert(trailing_enemy_hit_count == 1, "The homing Needle must reacquire and hit the enemy behind the boss")
-    assert(not world.projectile_positions.is_empty(), "The +2 Needle must survive after the boss and one normal hit")
-    assert(is_equal_approx(world.projectile_remaining_damage[0], 20.0), "Only the normal enemy may consume one of the +2 Needle's hit budgets")
+    assert(homing_boss_hits == 1, "A homing Needle must apply only one damage instance to a boss")
+    assert(trailing_enemy_hits == 1, "The homing Needle must reacquire the enemy behind the boss")
+    assert(not world.projectile_positions.is_empty(), "A +2 Needle must survive after one boss and one normal hit")
+    assert(is_equal_approx(world.projectile_remaining_damage[0], 10.0), "Boss and normal enemy must each consume one +2 Needle budget")
 
     _clear_combat_state(world)
     world.weapon_damage = GameConfig.NEEDLE_DAMAGE
@@ -572,16 +589,14 @@ func _test_projectile_damage_conservation(world: SimulationWorld) -> void:
         GameConfig.SNIPER_RADIUS,
         SimulationWorld.ProjectileKind.SNIPER
     )
-    assert(world.projectile_boss_passthroughs[0], "A piercing Longshot must snapshot boss transparency")
     world._rebuild_enemy_grid()
     world.hit_targets.clear()
     world.hit_damage.clear()
     world._update_projectiles(0.16)
     assert(world.hit_targets == [0, 1], "A piercing Longshot must pass through a boss into the next enemy")
     assert(is_equal_approx(world.hit_damage[0], longshot_hit), "A boss must receive exactly one Longshot damage instance")
-    assert(is_equal_approx(world.hit_damage[1], longshot_hit), "The following enemy must receive one Longshot hit")
-    assert(not world.projectile_positions.is_empty(), "The Longshot must retain its second hit budget after crossing a boss")
-    assert(is_equal_approx(world.projectile_remaining_damage[0], longshot_hit), "Only the normal enemy may consume Longshot pierce budget")
+    assert(is_equal_approx(world.hit_damage[1], longshot_hit), "The following enemy must receive the second Longshot hit")
+    assert(world.projectile_positions.is_empty(), "A two-budget Longshot must expire after the boss and one normal enemy")
 
 
 func _test_offense_pity(world: SimulationWorld) -> void:
@@ -1550,21 +1565,37 @@ func _test_expanded_weapon_roster(world: SimulationWorld) -> void:
     assert(not world.hit_targets.is_empty(), "Orbital satellites must damage enemies they overlap")
     assert(world.orbital_hit_timers[0] > 0.0, "Orbital contact must go on cooldown after a hit")
 
-    # Detonator lobs a shell that resolves as an area blast on arrival.
+    # Detonator shells explode on the first enemy crossed, rather than flying
+    # through intervening bodies to the initially selected destination.
     _clear_combat_state(world)
+    world.player_position = Vector2.ZERO
     world.owned_weapons.assign(["needle", "detonator"])
-    world._add_enemy(Vector2(300.0, 0.0), 1000.0, 0.0, 0.0, 14.0, 0, SimulationWorld.EnemyKind.NORMAL, Vector2.ZERO)
-    world._add_enemy(Vector2(300.0, 80.0), 1000.0, 0.0, 0.0, 14.0, 0, SimulationWorld.EnemyKind.NORMAL, Vector2.ZERO)
-    world.detonator_timer = 0.0
-    world._update_detonator(0.0)
-    assert(world.detonator_shell_positions.size() == 1, "Detonator must launch a shell at its target")
-    assert(world.hit_targets.is_empty(), "Detonator must not damage anything before the shell lands")
-    for step in range(240):
+    world._add_enemy(Vector2(200.0, 0.0), 1000.0, 0.0, 0.0, 14.0, 0, SimulationWorld.EnemyKind.NORMAL, Vector2.ZERO)
+    world._spawn_detonator_shell(Vector2(600.0, 0.0))
+    assert(world.detonator_shell_positions.size() == 1, "Detonator must launch a shell toward its aim point")
+    assert(world.hit_targets.is_empty(), "Detonator must not damage anything before impact")
+    for step in range(180):
         world._update_detonator_shells(1.0 / 60.0)
         if world.detonator_shell_positions.is_empty():
             break
-    assert(world.detonator_shell_positions.is_empty(), "Detonator shells must detonate instead of flying forever")
-    assert(world.hit_targets.size() == 2, "Detonator blasts must damage every enemy inside the radius")
+    assert(world.detonator_shell_positions.is_empty(), "A Detonator shell must disappear on first enemy impact")
+    assert(world.detonator_blast_positions.size() == 1, "Enemy impact must create one Detonator blast")
+    var impact_position := WorldSpace.nearest_image(Vector2.ZERO, world.detonator_blast_positions[0])
+    assert(impact_position.x < 200.0, "The blast center must occur at the blocker collision edge, before its center")
+    assert(world.hit_targets == [0], "The impact blast must damage the blocking enemy")
+
+    # With no collision, the original aim point remains the shell's fallback.
+    _clear_combat_state(world)
+    world.player_position = Vector2.ZERO
+    world._spawn_detonator_shell(Vector2(300.0, 0.0))
+    for step in range(180):
+        world._update_detonator_shells(1.0 / 60.0)
+        if world.detonator_shell_positions.is_empty():
+            break
+    assert(world.detonator_shell_positions.is_empty(), "An unobstructed Detonator shell must still resolve at its aim point")
+    assert(world.detonator_blast_positions.size() == 1, "The aim-point fallback must create one blast")
+    var fallback_position := WorldSpace.nearest_image(Vector2.ZERO, world.detonator_blast_positions[0])
+    assert(absf(fallback_position.x - 300.0) <= 8.0, "The unobstructed shell must detonate at its initial destination")
 
     # Slots stay scarce even though the pool grew to eight.
     _clear_combat_state(world)
@@ -1610,7 +1641,7 @@ func _clear_combat_state(world: SimulationWorld) -> void:
     world.pending_split_positions.clear()
     world.pending_split_health.clear()
     world.enemy_sprite_frames.clear()
-    world.enemy_last_hit_attack.clear()
+    world.enemy_entity_ids.clear()
     world.enemy_reserved_damage.clear()
     world.enemy_anchors.clear()
     world.enemy_boss_attack_timer.clear()
@@ -1625,7 +1656,7 @@ func _clear_combat_state(world: SimulationWorld) -> void:
     world.projectile_radii.clear()
     world.projectile_kinds.clear()
     world.projectile_per_target_damage.clear()
-    world.projectile_boss_passthroughs.clear()
+    world.projectile_hit_enemy_ids.clear()
     world.projectile_homing_strengths.clear()
     world.projectile_homing_aim_positions.clear()
     world.projectile_homing_refresh_timers.clear()

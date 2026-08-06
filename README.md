@@ -107,7 +107,7 @@ assets/audio/                generated robot-themed sound pack and documentation
 scenes/main.tscn            minimal scene composition
 ```
 
-The simulation uses no node per enemy and no signal per hit. Large populations live in compact parallel arrays, collision uses a uniform spatial grid with reused buckets, and normal enemies and projectiles render through `MultiMesh` batches. Needle and Longshot pierce through bosses one hit budget at a time, Aura Pulse schedules delayed echo pulses that recheck nearby enemies, and Mire Field persists and slows nearby enemies without requiring a target.
+The simulation uses no node per enemy and no signal per hit. Large populations live in compact parallel arrays, collision uses a uniform spatial grid with reused buckets, and normal enemies and projectiles render through `MultiMesh` batches. Needle and Longshot pierce through bosses one hit budget at a time, Detonator shells explode on the first enemy crossed or at their aim point, Aura Pulse schedules delayed echo pulses that recheck nearby enemies, and Mire Field persists and slows nearby enemies without requiring a target.
 
 ## Generated audio
 

@@ -156,7 +156,7 @@ Projectile pierce is a consumable damage budget:
 
 `total damage budget = projectile damage × (pierce + 1)`
 
-Each normal body consumes at most one base hit from that budget. A low-health target consumes only enough raw damage to finish its remaining health, preserving overkill for later bodies. A Needle or Longshot fired with at least one pierce rank treats bosses as transparent: each boss receives one mitigated damage instance, consumes no hit budget, and refreshes enough travel time for the projectile to clear the boss and reacquire a target. Zero-pierce shots still stop on a boss.
+Each body, including a boss, consumes at most one base hit from that budget. A low-health target consumes only enough raw damage to finish its remaining health, preserving overkill for later bodies. A piercing Needle or Longshot applies one mitigated damage instance to a boss, records that body in the projectile's own hit history, and passes through with the remaining budgets. Simultaneous projectiles keep independent histories, so overlapping volleys cannot repeatedly spend all pierce ranks on the same boss.
 
 A projectile can damage each target only once during its lifetime. Repeat-hit behavior belongs to explicitly persistent or melee attacks. Aura Pulse implements it as separate delayed echoes rather than multiple damage instances in one frame.
 

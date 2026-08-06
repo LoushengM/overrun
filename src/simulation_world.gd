@@ -171,6 +171,7 @@ var detonator_blast_radii: Array[float] = []
 var detonator_blast_timers: Array[float] = []
 
 var next_attack_id := 1
+var next_enemy_entity_id := 1
 
 var enemy_positions: Array[Vector2] = []
 var enemy_health: Array[float] = []
@@ -189,7 +190,7 @@ var enemy_shot_damage: Array[float] = []
 var pending_split_positions: Array[Vector2] = []
 var pending_split_health: Array[float] = []
 var enemy_sprite_frames: Array[int] = []
-var enemy_last_hit_attack: Array[int] = []
+var enemy_entity_ids: Array[int] = []
 var enemy_reserved_damage: Array[float] = []
 var enemy_anchors: Array[Vector2] = []
 var enemy_boss_attack_timer: Array[float] = []
@@ -205,7 +206,7 @@ var projectile_attack_ids: Array[int] = []
 var projectile_radii: Array[float] = []
 var projectile_kinds: Array[int] = []
 var projectile_per_target_damage: Array[float] = []
-var projectile_boss_passthroughs: Array[bool] = []
+var projectile_hit_enemy_ids: Array[PackedInt32Array] = []
 var projectile_homing_strengths: Array[float] = []
 var projectile_homing_aim_positions: Array[Vector2] = []
 var projectile_homing_refresh_timers: Array[float] = []
@@ -290,7 +291,7 @@ func reset_run() -> void:
     pending_split_positions.clear()
     pending_split_health.clear()
     enemy_sprite_frames.clear()
-    enemy_last_hit_attack.clear()
+    enemy_entity_ids.clear()
     enemy_reserved_damage.clear()
     enemy_anchors.clear()
     enemy_boss_attack_timer.clear()
@@ -306,7 +307,7 @@ func reset_run() -> void:
     projectile_radii.clear()
     projectile_kinds.clear()
     projectile_per_target_damage.clear()
-    projectile_boss_passthroughs.clear()
+    projectile_hit_enemy_ids.clear()
     projectile_homing_strengths.clear()
     projectile_homing_aim_positions.clear()
     projectile_homing_refresh_timers.clear()
@@ -445,6 +446,7 @@ func reset_run() -> void:
     detonator_blast_timers.clear()
 
     next_attack_id = 1
+    next_enemy_entity_id = 1
 
     _apply_character()
     player_texture = _make_player_texture(PLAYER_TEXTURE_SIZE, _player_shell_color())
@@ -562,7 +564,7 @@ func enable_benchmark(expanded_loadout: bool = false) -> void:
     pending_split_positions.clear()
     pending_split_health.clear()
     enemy_sprite_frames.clear()
-    enemy_last_hit_attack.clear()
+    enemy_entity_ids.clear()
     enemy_reserved_damage.clear()
     enemy_anchors.clear()
     enemy_boss_attack_timer.clear()
@@ -1144,14 +1146,48 @@ func _spawn_detonator_shell(target_position: Vector2) -> void:
 
 func _update_detonator_shells(delta: float) -> void:
     for i in range(detonator_shell_positions.size() - 1, -1, -1):
+        var start := detonator_shell_positions[i]
         var step := detonator_shell_velocities[i] * delta
-        detonator_shell_positions[i] = WorldSpace.wrap_position(detonator_shell_positions[i] + step)
+        var finish := start + step
+        var hit_fraction := _detonator_shell_hit_fraction(start, finish)
+        if hit_fraction >= 0.0:
+            detonator_shell_positions[i] = WorldSpace.wrap_position(start.lerp(finish, hit_fraction))
+            _detonate(detonator_shell_positions[i])
+            _remove_detonator_shell(i)
+            continue
+
+        detonator_shell_positions[i] = WorldSpace.wrap_position(finish)
         detonator_shell_remaining[i] -= step.length()
         detonator_shell_lifetimes[i] -= delta
         if detonator_shell_remaining[i] > 0.0 and detonator_shell_lifetimes[i] > 0.0:
             continue
         _detonate(detonator_shell_positions[i])
         _remove_detonator_shell(i)
+
+
+func _detonator_shell_hit_fraction(start: Vector2, finish: Vector2) -> float:
+    var step := finish - start
+    var query_origin := WorldSpace.wrap_position(start + step * 0.5)
+    var query_radius := (
+        step.length() * 0.5
+        + GameConfig.DETONATOR_RADIUS
+        + GameConfig.BOSS_RADIUS
+    )
+    _collect_enemy_candidates(query_origin, query_radius)
+    var best_fraction := 2.0
+    for enemy_index in enemy_query_candidates:
+        if enemy_health[enemy_index] - enemy_reserved_damage[enemy_index] <= 0.0:
+            continue
+        var collision_radius := GameConfig.DETONATOR_RADIUS + enemy_radii[enemy_index]
+        var hit_fraction := _segment_circle_hit_fraction(
+            start,
+            finish,
+            WorldSpace.nearest_image(start, enemy_positions[enemy_index]),
+            collision_radius
+        )
+        if hit_fraction >= 0.0 and hit_fraction < best_fraction:
+            best_fraction = hit_fraction
+    return best_fraction if best_fraction <= 1.0 else -1.0
 
 
 func _detonate(position: Vector2) -> void:
@@ -1252,10 +1288,7 @@ func _spawn_projectile(
     projectile_radii.append(resolved_radius)
     projectile_kinds.append(kind)
     projectile_per_target_damage.append(resolved_per_target_damage)
-    projectile_boss_passthroughs.append(
-        resolved_damage > resolved_per_target_damage + 0.0001
-        and kind in [ProjectileKind.NEEDLE, ProjectileKind.SNIPER]
-    )
+    projectile_hit_enemy_ids.append(PackedInt32Array())
     var homing_strength := needle_homing_strength if kind == ProjectileKind.NEEDLE else 0.0
     var has_initial_homing_target := (
         homing_strength > 0.0
@@ -1273,8 +1306,6 @@ func _spawn_projectile(
     next_attack_id += 1
     if next_attack_id >= 2147483000:
         next_attack_id = 1
-        for i in range(enemy_last_hit_attack.size()):
-            enemy_last_hit_attack[i] = 0
 
 
 func _scaled_weapon_damage(base_damage: float) -> float:
@@ -1321,6 +1352,12 @@ func _update_projectiles(delta: float) -> void:
         max_cell.y = mini(max_cell.y, min_cell.y + GameConfig.GRID_CELL_COUNT - 1)
         projectile_candidate_targets.clear()
         projectile_candidate_fractions.clear()
+        var hit_history := projectile_hit_enemy_ids[projectile_index]
+        var tracks_hit_history := (
+            not hit_history.is_empty()
+            or projectile_remaining_damage[projectile_index]
+            > projectile_per_target_damage[projectile_index] + 0.0001
+        )
 
         for cell_x in range(min_cell.x, max_cell.x + 1):
             for cell_y in range(min_cell.y, max_cell.y + 1):
@@ -1336,7 +1373,7 @@ func _update_projectiles(delta: float) -> void:
                     var enemy_index: int = enemy_index_variant
                     if enemy_health[enemy_index] - enemy_reserved_damage[enemy_index] <= 0.0:
                         continue
-                    if enemy_last_hit_attack[enemy_index] == projectile_attack_ids[projectile_index]:
+                    if tracks_hit_history and hit_history.find(enemy_entity_ids[enemy_index]) >= 0:
                         continue
                     var collision_radius := radius + enemy_radii[enemy_index]
                     var hit_fraction := _segment_circle_hit_fraction(
@@ -1356,9 +1393,6 @@ func _update_projectiles(delta: float) -> void:
             var target_remaining_health := enemy_health[enemy_index] - enemy_reserved_damage[enemy_index]
             if target_remaining_health <= 0.0:
                 continue
-            if enemy_last_hit_attack[enemy_index] == projectile_attack_ids[projectile_index]:
-                continue
-
             var damage_multiplier := _damage_multiplier_for_enemy(enemy_index)
             var raw_damage_spent := minf(
                 projectile_remaining_damage[projectile_index],
@@ -1371,23 +1405,12 @@ func _update_projectiles(delta: float) -> void:
             if damage_value <= 0.0:
                 continue
 
-            enemy_last_hit_attack[enemy_index] = projectile_attack_ids[projectile_index]
+            if tracks_hit_history:
+                hit_history.append(enemy_entity_ids[enemy_index])
             hit_targets.append(enemy_index)
             hit_damage.append(damage_value)
             enemy_reserved_damage[enemy_index] += damage_value
-            var boss_pass_through := (
-                enemy_kinds[enemy_index] == EnemyKind.BOSS
-                and projectile_boss_passthroughs[projectile_index]
-            )
-            if boss_pass_through:
-                var projectile_speed := projectile_velocities[projectile_index].length()
-                if projectile_speed > 0.001:
-                    projectile_lifetimes[projectile_index] = maxf(
-                        projectile_lifetimes[projectile_index],
-                        GameConfig.BOSS_PROJECTILE_PASS_THROUGH_DISTANCE / projectile_speed
-                    )
-            else:
-                projectile_remaining_damage[projectile_index] -= raw_damage_spent
+            projectile_remaining_damage[projectile_index] -= raw_damage_spent
             if projectile_kinds[projectile_index] == ProjectileKind.NEEDLE:
                 projectile_homing_refresh_timers[projectile_index] = 0.0
                 projectile_homing_has_targets[projectile_index] = false
@@ -1398,6 +1421,12 @@ func _update_projectiles(delta: float) -> void:
 
         if exhausted:
             _remove_projectile(projectile_index)
+        elif tracks_hit_history and not hit_history.is_empty():
+            projectile_hit_enemy_ids[projectile_index] = hit_history
+
+
+func _projectile_has_hit_enemy(projectile_index: int, enemy_index: int) -> bool:
+    return projectile_hit_enemy_ids[projectile_index].find(enemy_entity_ids[enemy_index]) >= 0
 
 
 func _steer_needle_projectile(projectile_index: int, delta: float) -> void:
@@ -1416,7 +1445,7 @@ func _steer_needle_projectile(projectile_index: int, delta: float) -> void:
         var target_index := _find_needle_homing_target(
             projectile_positions[projectile_index],
             GameConfig.NEEDLE_HOMING_ACQUISITION_RANGE,
-            projectile_attack_ids[projectile_index]
+            projectile_index
         )
         projectile_homing_has_targets[projectile_index] = target_index >= 0
         if target_index >= 0:
@@ -1456,7 +1485,7 @@ func _steer_needle_projectile(projectile_index: int, delta: float) -> void:
     projectile_velocities[projectile_index] = Vector2.from_angle(current_angle + turn) * speed
 
 
-func _find_needle_homing_target(origin: Vector2, max_range: float, attack_id: int) -> int:
+func _find_needle_homing_target(origin: Vector2, max_range: float, projectile_index: int) -> int:
     var best_index := -1
     var best_is_boss := false
     var best_distance_squared := max_range * max_range
@@ -1465,7 +1494,7 @@ func _find_needle_homing_target(origin: Vector2, max_range: float, attack_id: in
     for enemy_index in enemy_query_candidates:
         if enemy_health[enemy_index] - enemy_reserved_damage[enemy_index] <= 0.0:
             continue
-        if enemy_last_hit_attack[enemy_index] == attack_id:
+        if _projectile_has_hit_enemy(projectile_index, enemy_index):
             continue
         var distance_squared := WorldSpace.distance_squared(origin, enemy_positions[enemy_index])
         if distance_squared >= max_range * max_range:
@@ -1965,7 +1994,8 @@ func _add_enemy(
     enemy_archetypes.append(archetype_value)
     enemy_fire_timers.append(_initial_fire_timer(archetype_value))
     enemy_sprite_frames.append(_sprite_frame_for(kind_value, archetype_value))
-    enemy_last_hit_attack.append(0)
+    enemy_entity_ids.append(next_enemy_entity_id)
+    next_enemy_entity_id += 1
     enemy_reserved_damage.append(0.0)
     enemy_anchors.append(anchor_value)
     enemy_boss_attack_timer.append(rng.randf_range(1.5, 3.0) if kind_value == EnemyKind.BOSS else 0.0)
@@ -2778,7 +2808,7 @@ func _remove_enemy(index: int) -> void:
         enemy_archetypes[index] = enemy_archetypes[last]
         enemy_fire_timers[index] = enemy_fire_timers[last]
         enemy_sprite_frames[index] = enemy_sprite_frames[last]
-        enemy_last_hit_attack[index] = enemy_last_hit_attack[last]
+        enemy_entity_ids[index] = enemy_entity_ids[last]
         enemy_reserved_damage[index] = enemy_reserved_damage[last]
         enemy_anchors[index] = enemy_anchors[last]
         enemy_boss_attack_timer[index] = enemy_boss_attack_timer[last]
@@ -2797,7 +2827,7 @@ func _remove_enemy(index: int) -> void:
     enemy_archetypes.pop_back()
     enemy_fire_timers.pop_back()
     enemy_sprite_frames.pop_back()
-    enemy_last_hit_attack.pop_back()
+    enemy_entity_ids.pop_back()
     enemy_reserved_damage.pop_back()
     enemy_anchors.pop_back()
     enemy_boss_attack_timer.pop_back()
@@ -2819,7 +2849,7 @@ func _remove_projectile(index: int) -> void:
         projectile_radii[index] = projectile_radii[last]
         projectile_kinds[index] = projectile_kinds[last]
         projectile_per_target_damage[index] = projectile_per_target_damage[last]
-        projectile_boss_passthroughs[index] = projectile_boss_passthroughs[last]
+        projectile_hit_enemy_ids[index] = projectile_hit_enemy_ids[last]
         projectile_homing_strengths[index] = projectile_homing_strengths[last]
         projectile_homing_aim_positions[index] = projectile_homing_aim_positions[last]
         projectile_homing_refresh_timers[index] = projectile_homing_refresh_timers[last]
@@ -2832,7 +2862,7 @@ func _remove_projectile(index: int) -> void:
     projectile_radii.pop_back()
     projectile_kinds.pop_back()
     projectile_per_target_damage.pop_back()
-    projectile_boss_passthroughs.pop_back()
+    projectile_hit_enemy_ids.pop_back()
     projectile_homing_strengths.pop_back()
     projectile_homing_aim_positions.pop_back()
     projectile_homing_refresh_timers.pop_back()
