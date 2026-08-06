@@ -129,7 +129,7 @@ func _on_boss_upgrade_requested(options: Array[String]) -> void:
     hud.show_upgrade(
         options,
         "BOSS REWARD",
-        "Choose a weapon upgrade; exhausted builds gain overcap Attack Speed",
+        "Choose a weapon upgrade",
         world.get_upgrade_progress_snapshot(options)
     )
 

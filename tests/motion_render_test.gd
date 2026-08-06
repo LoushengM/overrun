@@ -195,7 +195,7 @@ func _verify_upgrade_overlay_layout(world: SimulationWorld, hud: GameHud) -> voi
     hud.show_upgrade(
         options,
         "BOSS REWARD",
-        "Choose a weapon upgrade; exhausted builds gain overcap Attack Speed",
+        "Choose a weapon upgrade",
         world.get_upgrade_progress_snapshot(options)
     )
     for frame_index in range(3):
@@ -203,12 +203,18 @@ func _verify_upgrade_overlay_layout(world: SimulationWorld, hud: GameHud) -> voi
     var viewport_size := root.get_viewport().get_visible_rect().size
     var panel_rect := Rect2(hud.upgrade_panel.position, hud.upgrade_panel.size)
     print("UPGRADE_OVERLAY_METRICS ", JSON.stringify({
+        "viewport_width": viewport_size.x,
         "viewport_height": viewport_size.y,
+        "panel_x": panel_rect.position.x,
         "panel_y": panel_rect.position.y,
+        "panel_width": panel_rect.size.x,
         "panel_height": panel_rect.size.y,
+        "panel_right": panel_rect.end.x,
         "panel_bottom": panel_rect.end.y,
         "button_height": hud.upgrade_buttons[0].size.y,
     }))
+    assert(panel_rect.position.x >= 0.0, "The rendered boss reward modal must not clip left of the viewport")
+    assert(panel_rect.end.x <= viewport_size.x, "The rendered boss reward modal must not clip right of the viewport")
     assert(panel_rect.position.y >= 0.0, "The rendered upgrade modal must not clip above the viewport")
     assert(panel_rect.end.y <= viewport_size.y, "The rendered upgrade modal must not clip below the viewport")
     assert(panel_rect.size.y <= 420.0, "Rank labels must not enlarge the rendered upgrade modal")

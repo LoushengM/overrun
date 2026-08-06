@@ -582,6 +582,9 @@ func _build_upgrade_overlay() -> void:
     upgrade_subtitle = Label.new()
     upgrade_subtitle.text = "Arrows select, Enter/Space confirm, or press 1/2/3"
     upgrade_subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+    upgrade_subtitle.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+    upgrade_subtitle.custom_minimum_size = Vector2(730.0, 0.0)
+    upgrade_subtitle.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
     upgrade_subtitle.add_theme_font_size_override("font_size", 18)
     layout.add_child(upgrade_subtitle)
 

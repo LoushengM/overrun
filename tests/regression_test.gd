@@ -763,11 +763,13 @@ func _test_upgrade_rank_display(world: SimulationWorld, hud: GameHud) -> void:
     assert(hud.upgrade_buttons[2].text.contains("RANK 9/8"), "Boss-overcapped Attack Speed must preserve a current rank above its normal cap")
     for button in hud.upgrade_buttons:
         assert(button.size.y >= 82.0, "Compact upgrade cards must retain enough vertical room for title, rank, and description")
-    var viewport_height: float = hud.get_viewport().get_visible_rect().size.y
+    var viewport_size: Vector2 = hud.get_viewport().get_visible_rect().size
     assert(hud.upgrade_panel.size.y <= 420.0, "Upgrade rank text must not enlarge the modal beyond its original compact height")
+    assert(hud.upgrade_panel.position.x >= 0.0, "The upgrade modal must remain inside the left of the viewport")
+    assert(hud.upgrade_panel.position.x + hud.upgrade_panel.size.x <= viewport_size.x, "The upgrade modal must remain inside the right of the viewport")
     assert(hud.upgrade_panel.position.y >= 0.0, "The upgrade modal must remain inside the top of the viewport")
     assert(
-        hud.upgrade_panel.position.y + hud.upgrade_panel.size.y <= viewport_height,
+        hud.upgrade_panel.position.y + hud.upgrade_panel.size.y <= viewport_size.y,
         "The upgrade modal must remain inside the bottom of the viewport"
     )
     hud.hide_upgrade()
