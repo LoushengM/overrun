@@ -29,6 +29,7 @@ var minimap: BossMinimap
 var performance_label: Label
 
 var upgrade_overlay: ColorRect
+var upgrade_panel: PanelContainer
 var upgrade_title: Label
 var upgrade_subtitle: Label
 var upgrade_buttons: Array[Button] = []
@@ -327,11 +328,11 @@ func show_upgrade(
                 if maximum_rank > 0
                 else "RANK %d" % current_rank
             )
-            button.text = "[%d]  %s\n%s\n%s" % [
+            button.text = "[%d]  %s    %s\n%s" % [
                 i + 1,
                 GameConfig.UPGRADE_NAMES.get(upgrade_id, upgrade_id),
-                GameConfig.UPGRADE_DESCRIPTIONS.get(upgrade_id, ""),
                 rank_text,
+                GameConfig.UPGRADE_DESCRIPTIONS.get(upgrade_id, ""),
             ]
         else:
             button.visible = false
@@ -555,21 +556,21 @@ func _build_upgrade_overlay() -> void:
     upgrade_overlay.visible = false
     root.add_child(upgrade_overlay)
 
-    var panel := PanelContainer.new()
-    panel.anchor_left = 0.5
-    panel.anchor_top = 0.5
-    panel.anchor_right = 0.5
-    panel.anchor_bottom = 0.5
-    panel.offset_left = -390.0
-    panel.offset_top = -235.0
-    panel.offset_right = 390.0
-    panel.offset_bottom = 235.0
-    panel.add_theme_stylebox_override("panel", _make_panel_style(UI_PANEL, UI_BORDER, 2, 9))
-    upgrade_overlay.add_child(panel)
+    upgrade_panel = PanelContainer.new()
+    upgrade_panel.anchor_left = 0.5
+    upgrade_panel.anchor_top = 0.5
+    upgrade_panel.anchor_right = 0.5
+    upgrade_panel.anchor_bottom = 0.5
+    upgrade_panel.offset_left = -390.0
+    upgrade_panel.offset_top = -210.0
+    upgrade_panel.offset_right = 390.0
+    upgrade_panel.offset_bottom = 210.0
+    upgrade_panel.add_theme_stylebox_override("panel", _make_panel_style(UI_PANEL, UI_BORDER, 2, 9))
+    upgrade_overlay.add_child(upgrade_panel)
 
     var layout := VBoxContainer.new()
     layout.add_theme_constant_override("separation", 14)
-    panel.add_child(layout)
+    upgrade_panel.add_child(layout)
 
     upgrade_title = Label.new()
     upgrade_title.text = "LEVEL UP"
@@ -586,7 +587,7 @@ func _build_upgrade_overlay() -> void:
 
     for i in range(3):
         var button := Button.new()
-        button.custom_minimum_size = Vector2(730.0, 94.0)
+        button.custom_minimum_size = Vector2(730.0, 82.0)
         button.add_theme_font_size_override("font_size", 19)
         button.focus_mode = Control.FOCUS_ALL
         _style_button(button)

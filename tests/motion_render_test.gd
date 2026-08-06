@@ -34,6 +34,7 @@ func _run() -> void:
     _verify_pickup_radar(radar_capture)
     var hotbar_capture: Image = await _capture_weapon_hotbar(world, hud)
     _verify_weapon_hotbar(hotbar_capture)
+    await _verify_upgrade_overlay_layout(world, hud)
     var base_longshot: Image = await _capture_longshot_size(world, hud, GameConfig.SNIPER_RADIUS)
     var upgraded_longshot: Image = await _capture_longshot_size(
         world,
@@ -182,6 +183,39 @@ func _clear_projectiles(world: SimulationWorld) -> void:
     world.projectile_homing_refresh_timers.clear()
     world.projectile_homing_has_targets.clear()
 
+
+
+
+func _verify_upgrade_overlay_layout(world: SimulationWorld, hud: GameHud) -> void:
+    hud.reset_display()
+    hud.visible = true
+    world.weapon_upgrade_levels["needle_homing"] = 2
+    world.global_upgrade_levels["attack_speed"] = GameConfig.GLOBAL_UPGRADE_CAPS["attack_speed"] + 1
+    var options: Array[String] = ["damage", "needle_homing", "attack_speed"]
+    hud.show_upgrade(
+        options,
+        "BOSS REWARD",
+        "Choose a weapon upgrade; exhausted builds gain overcap Attack Speed",
+        world.get_upgrade_progress_snapshot(options)
+    )
+    for frame_index in range(3):
+        await process_frame
+    var viewport_size := root.get_viewport().get_visible_rect().size
+    var panel_rect := Rect2(hud.upgrade_panel.position, hud.upgrade_panel.size)
+    print("UPGRADE_OVERLAY_METRICS ", JSON.stringify({
+        "viewport_height": viewport_size.y,
+        "panel_y": panel_rect.position.y,
+        "panel_height": panel_rect.size.y,
+        "panel_bottom": panel_rect.end.y,
+        "button_height": hud.upgrade_buttons[0].size.y,
+    }))
+    assert(panel_rect.position.y >= 0.0, "The rendered upgrade modal must not clip above the viewport")
+    assert(panel_rect.end.y <= viewport_size.y, "The rendered upgrade modal must not clip below the viewport")
+    assert(panel_rect.size.y <= 420.0, "Rank labels must not enlarge the rendered upgrade modal")
+    assert(hud.upgrade_buttons[0].text.contains("RANK 0"), "Unlimited rank progress must remain visible in the compact card")
+    assert(hud.upgrade_buttons[1].text.contains("RANK 2/4"), "Capped rank progress must remain visible in the compact card")
+    assert(hud.upgrade_buttons[2].text.contains("RANK 9/8"), "Overcap rank progress must remain visible in the compact card")
+    hud.hide_upgrade()
 
 func _capture_weapon_hotbar(world: SimulationWorld, hud: GameHud) -> Image:
     hud.reset_display()

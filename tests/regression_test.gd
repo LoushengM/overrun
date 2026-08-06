@@ -758,11 +758,18 @@ func _test_upgrade_rank_display(world: SimulationWorld, hud: GameHud) -> void:
         "Current upgrade counts",
         world.get_upgrade_progress_snapshot(options)
     )
-    assert(hud.upgrade_buttons[0].text.ends_with("RANK 2"), "Unlimited upgrades must show only their current count")
-    assert(hud.upgrade_buttons[1].text.ends_with("RANK 2/4"), "Capped upgrades must show current rank out of maximum")
-    assert(hud.upgrade_buttons[2].text.ends_with("RANK 9/8"), "Boss-overcapped Attack Speed must preserve a current rank above its normal cap")
+    assert(hud.upgrade_buttons[0].text.contains("RANK 2"), "Unlimited upgrades must show only their current count")
+    assert(hud.upgrade_buttons[1].text.contains("RANK 2/4"), "Capped upgrades must show current rank out of maximum")
+    assert(hud.upgrade_buttons[2].text.contains("RANK 9/8"), "Boss-overcapped Attack Speed must preserve a current rank above its normal cap")
     for button in hud.upgrade_buttons:
-        assert(button.size.y >= 94.0, "Three-line upgrade cards must retain enough vertical room for rank text")
+        assert(button.size.y >= 82.0, "Compact upgrade cards must retain enough vertical room for title, rank, and description")
+    var viewport_height: float = hud.get_viewport().get_visible_rect().size.y
+    assert(hud.upgrade_panel.size.y <= 420.0, "Upgrade rank text must not enlarge the modal beyond its original compact height")
+    assert(hud.upgrade_panel.position.y >= 0.0, "The upgrade modal must remain inside the top of the viewport")
+    assert(
+        hud.upgrade_panel.position.y + hud.upgrade_panel.size.y <= viewport_height,
+        "The upgrade modal must remain inside the bottom of the viewport"
+    )
     hud.hide_upgrade()
 
     var unlock_options: Array[String] = ["unlock_sniper"]
@@ -772,7 +779,7 @@ func _test_upgrade_rank_display(world: SimulationWorld, hud: GameHud) -> void:
         "Unlock progress",
         world.get_upgrade_progress_snapshot(unlock_options)
     )
-    assert(hud.upgrade_buttons[0].text.ends_with("RANK 0/1"), "Weapon unlock cards must show their one-time ownership progress")
+    assert(hud.upgrade_buttons[0].text.contains("RANK 0/1"), "Weapon unlock cards must show their one-time ownership progress")
     hud.hide_upgrade()
 
 
@@ -1146,7 +1153,7 @@ func _test_weapon_slots_and_boss_rewards(scene: Node, world: SimulationWorld, hu
     world._check_boss_reward()
     assert(paused, "The exhausted boss fallback must still open a reward screen")
     assert(hud.upgrade_buttons[0].get_meta("upgrade_id", "") == "attack_speed", "The exhausted boss fallback must offer Attack Speed")
-    assert(hud.upgrade_buttons[0].text.ends_with("RANK 8/8"), "The first overcap reward must show the current normal-cap rank")
+    assert(hud.upgrade_buttons[0].text.contains("RANK 8/8"), "The first overcap reward must show the current normal-cap rank")
     assert(not hud.upgrade_buttons[1].visible and not hud.upgrade_buttons[2].visible, "The exhausted fallback should be a single deterministic choice")
     hud._input(boss_key_event)
     assert(not paused, "Choosing overcap Attack Speed must resume the run")
@@ -1156,7 +1163,7 @@ func _test_weapon_slots_and_boss_rewards(scene: Node, world: SimulationWorld, hu
 
     world.pending_boss_rewards = 1
     world._check_boss_reward()
-    assert(hud.upgrade_buttons[0].text.ends_with("RANK 9/8"), "Later boss cards must display overcap progress such as 9/8")
+    assert(hud.upgrade_buttons[0].text.contains("RANK 9/8"), "Later boss cards must display overcap progress such as 9/8")
     hud._input(boss_key_event)
     assert(world.global_upgrade_levels["attack_speed"] == 10, "Every later exhausted boss must remain a source of Attack Speed")
 
