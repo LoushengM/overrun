@@ -153,6 +153,11 @@ const NEEDLE_LIFETIME := 0.90
 const NEEDLE_RANGE := 700.0
 const NEEDLE_RADIUS := 6.0
 const NEEDLE_PIERCE := 0
+const NEEDLE_HOMING_PER_RANK := 0.10
+const NEEDLE_HOMING_MAX := 0.40
+const NEEDLE_HOMING_MAX_TURN_RATE := TAU * 2.0
+const NEEDLE_HOMING_ACQUISITION_RANGE := 560.0
+const NEEDLE_HOMING_REFRESH_INTERVAL := 0.10
 
 # Compatibility names used by the current simulation and benchmark helpers.
 const WEAPON_DAMAGE := NEEDLE_DAMAGE
@@ -420,29 +425,28 @@ const NEARBY_THREAT_RADIUS := 2100.0
 
 const GLOBAL_UPGRADE_IDS := [
     "damage",
+    "attack_speed",
     "move_speed",
     "max_health",
     "armor",
     "regen",
 ]
+const GLOBAL_UPGRADE_CAPS := {
+    "attack_speed": 8,
+}
+const ATTACK_SPEED_PER_RANK := 0.08
 
 const LOW_FREQUENCY_UPGRADE_WEIGHT := 0.20
 const DPS_UPGRADE_IDS := [
     "damage",
-    "needle_fire_rate",
+    "attack_speed",
+    "needle_homing",
     "needle_projectile_count",
-    "sniper_fire_rate",
-    "aura_fire_rate",
     "aura_echoes",
-    "field_fire_rate",
     "field_duration",
-    "chain_fire_rate",
     "chain_jumps",
-    "flak_fire_rate",
     "flak_pellets",
     "orbital_count",
-    "orbital_fire_rate",
-    "detonator_fire_rate",
     "detonator_blast",
 ]
 const UPGRADE_ROLL_WEIGHTS := {
@@ -453,39 +457,34 @@ const UPGRADE_ROLL_WEIGHTS := {
 }
 
 const NEEDLE_UPGRADE_IDS := [
-    "needle_fire_rate",
+    "needle_homing",
     "needle_projectile_count",
     "needle_pierce",
 ]
 
 const SNIPER_UPGRADE_IDS := [
-    "sniper_fire_rate",
     "sniper_pierce",
     "sniper_range",
     "sniper_size",
 ]
 
 const AURA_UPGRADE_IDS := [
-    "aura_fire_rate",
     "aura_radius",
     "aura_echoes",
 ]
 
 const FIELD_UPGRADE_IDS := [
-    "field_fire_rate",
     "field_radius",
     "field_duration",
 ]
 
 const CHAIN_UPGRADE_IDS := [
-    "chain_fire_rate",
     "chain_jumps",
     "chain_falloff",
     "chain_range",
 ]
 
 const FLAK_UPGRADE_IDS := [
-    "flak_fire_rate",
     "flak_pellets",
     "flak_spread",
     "flak_range",
@@ -493,13 +492,11 @@ const FLAK_UPGRADE_IDS := [
 
 const ORBITAL_UPGRADE_IDS := [
     "orbital_count",
-    "orbital_fire_rate",
     "orbital_radius",
     "orbital_size",
 ]
 
 const DETONATOR_UPGRADE_IDS := [
-    "detonator_fire_rate",
     "detonator_blast",
     "detonator_range",
 ]
@@ -516,32 +513,25 @@ const WEAPON_UPGRADE_IDS := {
 }
 
 const WEAPON_UPGRADE_CAPS := {
-    "needle_fire_rate": 10,
+    "needle_homing": 4,
     "needle_projectile_count": 10,
     "needle_pierce": 4,
-    "sniper_fire_rate": 8,
     "sniper_pierce": 4,
     "sniper_range": 5,
     "sniper_size": 6,
-    "aura_fire_rate": 8,
     "aura_radius": 6,
     "aura_echoes": 6,
-    "field_fire_rate": 8,
     "field_radius": 6,
     "field_duration": 6,
-    "chain_fire_rate": 8,
     "chain_jumps": 6,
     "chain_falloff": 5,
     "chain_range": 5,
-    "flak_fire_rate": 8,
     "flak_pellets": 8,
     "flak_spread": 5,
     "flak_range": 5,
     "orbital_count": 8,
-    "orbital_fire_rate": 6,
     "orbital_radius": 5,
     "orbital_size": 5,
-    "detonator_fire_rate": 8,
     "detonator_blast": 6,
     "detonator_range": 5,
 }
@@ -558,6 +548,7 @@ const WEAPON_UNLOCK_IDS := {
 
 const UPGRADE_NAMES := {
     "damage": "Base Damage",
+    "attack_speed": "Base Attack Speed",
     "move_speed": "Light Footing",
     "max_health": "Reinforced Core",
     "armor": "Plating",
@@ -565,42 +556,36 @@ const UPGRADE_NAMES := {
     "unlock_sniper": "New Weapon — Longshot",
     "unlock_aura": "New Weapon — Aura Pulse",
     "unlock_field": "New Weapon — Mire Field",
-    "needle_fire_rate": "Needle — Faster Cycling",
+    "needle_homing": "Needle — Guidance",
     "needle_projectile_count": "Needle — Split Shot",
     "needle_pierce": "Needle — Piercing Rounds",
-    "sniper_fire_rate": "Longshot — Bolt Cycling",
     "sniper_pierce": "Longshot — Penetrator",
     "sniper_range": "Longshot — High-Power Optics",
     "sniper_size": "Longshot — Heavy Caliber",
-    "aura_fire_rate": "Aura Pulse — Quicker Pulse",
     "aura_radius": "Aura Pulse — Wider Wave",
     "aura_echoes": "Aura Pulse — Echoing Strike",
-    "field_fire_rate": "Mire Field — Faster Deployment",
     "field_radius": "Mire Field — Wider Pool",
     "field_duration": "Mire Field — Lingering Mire",
     "unlock_chain": "New Weapon — Arc Chain",
     "unlock_flak": "New Weapon — Flak Burst",
     "unlock_orbital": "New Weapon — Orbital",
     "unlock_detonator": "New Weapon — Detonator",
-    "chain_fire_rate": "Arc Chain — Rapid Discharge",
     "chain_jumps": "Arc Chain — Extra Arc",
     "chain_falloff": "Arc Chain — Stable Current",
     "chain_range": "Arc Chain — Longer Reach",
-    "flak_fire_rate": "Flak Burst — Faster Reload",
     "flak_pellets": "Flak Burst — Dense Payload",
     "flak_spread": "Flak Burst — Tightened Choke",
     "flak_range": "Flak Burst — Longer Pellets",
     "orbital_count": "Orbital — Extra Satellite",
-    "orbital_fire_rate": "Orbital — Faster Rotation",
     "orbital_radius": "Orbital — Wider Orbit",
     "orbital_size": "Orbital — Heavier Satellites",
-    "detonator_fire_rate": "Detonator — Faster Lob",
     "detonator_blast": "Detonator — Larger Blast",
     "detonator_range": "Detonator — Longer Throw",
 }
 
 const UPGRADE_DESCRIPTIONS := {
     "damage": "+20% damage for all weapons",
+    "attack_speed": "+8% attack speed for every weapon (max 8)",
     "move_speed": "+10% movement speed and proportional camera zoom-out",
     "max_health": "+15% max health and heal the gain",
     "armor": "+10 armor",
@@ -608,36 +593,29 @@ const UPGRADE_DESCRIPTIONS := {
     "unlock_sniper": "Equip a slow, powerful long-range projectile weapon",
     "unlock_aura": "Equip a melee pulse that hits every nearby enemy",
     "unlock_field": "Equip persistent slowing damage zones",
-    "needle_fire_rate": "-12% Needle cooldown",
+    "needle_homing": "+10% Needle homing strength (10/20/30/40%)",
     "needle_projectile_count": "+1 Needle projectile per attack",
     "needle_pierce": "+1 full Needle damage budget (max 4)",
-    "sniper_fire_rate": "-10% Longshot cooldown",
     "sniper_pierce": "+1 full Longshot damage budget (max 4)",
     "sniper_range": "+12% Longshot targeting and travel range",
     "sniper_size": "+45% Longshot collision radius; the projectile visibly grows",
-    "aura_fire_rate": "-10% Aura Pulse cooldown",
     "aura_radius": "+12% Aura Pulse radius",
     "aura_echoes": "+1 delayed pulse that rechecks enemies in range",
-    "field_fire_rate": "-10% Mire Field deployment cooldown",
     "field_radius": "+12% Mire Field radius",
     "field_duration": "+0.5 seconds Mire Field duration",
     "unlock_chain": "Equip lightning that jumps between nearby enemies",
     "unlock_flak": "Equip a wide close-range burst of pellets",
     "unlock_orbital": "Equip satellites that circle you and grind contact damage",
     "unlock_detonator": "Equip a lobbed shell that explodes on impact",
-    "chain_fire_rate": "-11% Arc Chain cooldown",
     "chain_jumps": "+1 Arc Chain jump",
     "chain_falloff": "+8% damage retained per Arc Chain jump",
     "chain_range": "+12% Arc Chain targeting and jump radius",
-    "flak_fire_rate": "-10% Flak Burst cooldown",
     "flak_pellets": "+1 Flak Burst pellet",
     "flak_spread": "-12% Flak Burst cone angle; the firing cone visibly narrows",
     "flak_range": "+15% Flak Burst pellet travel and range",
     "orbital_count": "+1 orbiting satellite",
-    "orbital_fire_rate": "+12% Orbital rotation and contact rate",
     "orbital_radius": "+12% Orbital orbit radius",
     "orbital_size": "+20% Orbital satellite size",
-    "detonator_fire_rate": "-10% Detonator cooldown",
     "detonator_blast": "+12% Detonator blast radius",
     "detonator_range": "+12% Detonator throw range"
 }

@@ -220,28 +220,33 @@ On level-up:
 - Draw without duplicate choices when possible.
 - Apply the selected upgrade immediately.
 - Preserve XP overflow.
-- Through level 30, estimate sustained build DPS and compare it with current normal-enemy health using a 0.9-second target kill time. When output falls below the target, guarantee one eligible DPS-improving choice; below 65% of the target, guarantee two. Valid pity choices include Base Damage and owned-weapon fire-rate, projectile-count, Aura echo, and Mire uptime upgrades. The guarantee ends after level 30 so endless enemy scaling can still overtake the player.
+- Through level 30, estimate sustained build DPS and compare it with current normal-enemy health using a 0.9-second target kill time. When output falls below the target, guarantee one eligible DPS-improving choice; below 65% of the target, guarantee two. Valid pity choices include Base Damage, shared Attack Speed, Needle homing and projectile count, Aura echoes, Mire uptime, and equivalent output upgrades for the other owned weapons. The guarantee ends after level 30 so endless enemy scaling can still overtake the player.
 
-Global upgrades remain eligible indefinitely:
+Most global upgrades remain eligible indefinitely. Shared Attack Speed is intentionally capped because it improves the entire equipped loadout at once:
 
 | Upgrade | Effect |
 |---|---|
 | Base damage | +20% damage for every weapon |
+| Attack speed | +8% attack speed for every weapon, capped at 8 ranks |
 | Move speed | +10% movement speed and zoom the camera out by the same multiplier |
 | Maximum health | +15% max health and heal the amount gained |
 | Armor | +10 armor |
 | Regeneration | +0.5% max health/s |
 
-Each owned weapon contributes only its own uncapped choices to ordinary level-ups. Capped upgrades disappear from future rolls. Armor, regeneration, maximum health, Needle range, and Longshot range share a low-frequency tier at 20% of normal upgrade weight; this weighting also applies to weapon-only boss rewards.
+Each owned weapon contributes its own capped choices to ordinary level-ups. Capped upgrades disappear from future rolls. Armor, regeneration, maximum health, and Longshot range share a low-frequency tier at 20% of normal upgrade weight; Longshot range keeps that weighting in weapon-only boss rewards.
 
 | Weapon | Capped upgrade tracks |
 |---|---|
-| Needle | Fire rate 10, projectile count 10, pierce 10, range 5 |
-| Longshot | Fire rate 8, pierce 6, range 5, projectile size 6 |
-| Aura Pulse | Fire rate 8, radius 6, delayed echoes 6 |
-| Mire Field | Deployment rate 8, radius 6, duration 6 |
+| Needle | Homing 4 (10/20/30/40%), projectile count 10, pierce 4 |
+| Longshot | Pierce 4, range 5, projectile size 6 |
+| Aura Pulse | Radius 6, delayed echoes 6 |
+| Mire Field | Radius 6, duration 6 |
+| Arc Chain | Jumps 6, damage retention 5, range 5 |
+| Flak Burst | Pellet count 8, spread 5, range 5 |
+| Orbital | Satellite count 8, orbit radius 5, satellite size 5 |
+| Detonator | Blast radius 6, range 5 |
 
-Boss rewards contain only weapon content: at least one new weapon is guaranteed while an empty slot exists, and the remaining choices are uncapped upgrades for already owned weapons. At the four-slot cap, new-weapon choices disappear.
+Boss rewards contain only weapon content: at least one new weapon is guaranteed while an empty slot exists, and the remaining choices are eligible, not-yet-capped upgrades for already owned weapons. At the four-slot cap, new-weapon choices disappear.
 
 Pickup radius remains a fixed player stat while health pickups are the only collectible. It should not appear in upgrade rolls unless the game later adds enough collectible objects to make the choice meaningful.
 
@@ -471,7 +476,7 @@ Start with ordinary sprites only long enough to verify behavior. Move bulk enemi
 - XP curve and overflow
 - Pause on level-up
 - Three random choices
-- Damage, fire-rate, projectile-count, pierce, movement, and max-health upgrades
+- Damage, shared attack-speed, Needle homing, projectile-count, pierce, movement, and max-health upgrades
 - No duplicate choices in the same offer
 
 ### Milestone 3: sustained run

@@ -7,11 +7,11 @@ The repository intentionally favors a small playable loop over a content framewo
 ## Current demo
 
 - One playable character, Runner
-- A four-slot weapon roster: Needle, Longshot, Aura Pulse, and Mire Field
+- Eight weapons competing for four loadout slots
 - An array-based enemy and projectile simulation with batched rendering
 - A 2× compressed progression clock: doubled XP rewards and spawn throughput, half-time bosses, and twice-as-fast enemy scaling
 - XP with three-choice paused level-ups and level-30 DPS-tracking offense pity
-- Infinite global damage scaling plus distinct capped upgrade pools, weighted utility rolls, and strongly scaling Longshot projectile size
+- Infinite global damage scaling, capped shared Attack Speed, distinct weapon upgrade pools, and four-rank Needle homing
 - Armor with diminishing returns, brief post-hit invulnerability frames, and lethal-hit protection above 50% HP
 - Regeneration only below 50% health after a damage delay
 - Persistent percentage-based health pickups
@@ -28,7 +28,8 @@ The detailed design remains in [`docs/MVP_DESIGN.md`](docs/MVP_DESIGN.md).
 ## Controls
 
 - Move: `WASD` or arrow keys
-- Toggle targeting between Closest and Strongest: `T`
+- Toggle targeting for weapon slots: number keys `1`–`4`
+- Toggle all targetable weapons between Closest and Strongest: `T`
 - Toggle the performance diagnostics panel: `F3`
 - Choose upgrades: mouse, number keys `1`–`3`, arrows plus `Enter`, or arrows plus `Space`
 - Restart after death with the same operator: `R`, `Enter`, `Space`, or the restart button

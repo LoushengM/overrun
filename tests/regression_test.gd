@@ -24,6 +24,7 @@ func _run() -> void:
     _test_projectile_damage_conservation(world)
     _test_offense_pity(world)
     _test_upgrade_roll_weights(world)
+    _test_attack_speed_and_homing(world, hud)
     _test_player_invulnerability(world)
     _test_speed_upgrade_camera_zoom(world)
     _test_game_pace_scaling(world)
@@ -501,9 +502,9 @@ func _test_offense_pity(world: SimulationWorld) -> void:
     assert(world._offense_pity_option_count() == 2, "A severely underpowered early build must guarantee two DPS choices")
     var eligible_dps := world._eligible_dps_upgrades()
     assert(eligible_dps.has("damage"), "Base Damage must be eligible for offense pity")
-    assert(eligible_dps.has("needle_fire_rate"), "Owned-weapon fire rate must be eligible for offense pity")
+    assert(eligible_dps.has("attack_speed"), "Shared Attack Speed must be eligible for offense pity")
+    assert(eligible_dps.has("needle_homing"), "Owned Needle homing must be eligible for offense pity")
     assert(eligible_dps.has("needle_projectile_count"), "Owned-weapon projectile count must be eligible for offense pity")
-    assert(not eligible_dps.has("sniper_fire_rate"), "Unowned weapon upgrades must not enter offense pity")
     assert(not eligible_dps.has("needle_range"), "The retired Needle range upgrade must not enter offense pity")
     for roll_index in range(20):
         var pity_options := world._roll_upgrade_options()
@@ -539,8 +540,29 @@ func _test_upgrade_roll_weights(world: SimulationWorld) -> void:
     assert(is_equal_approx(world._upgrade_roll_weight("damage"), 1.0), "Damage must retain normal roll weight")
     assert(is_equal_approx(world._upgrade_roll_weight("move_speed"), 1.0), "Movement speed must retain normal roll weight")
     assert(GameConfig.DPS_UPGRADE_IDS.has("damage"), "Base Damage must remain a DPS pity option")
-    assert(GameConfig.DPS_UPGRADE_IDS.has("needle_fire_rate"), "Weapon fire-rate upgrades must be valid DPS pity options")
+    assert(GameConfig.DPS_UPGRADE_IDS.has("attack_speed"), "Shared Attack Speed must be a DPS pity option")
+    assert(GameConfig.DPS_UPGRADE_IDS.has("needle_homing"), "Needle homing must be a DPS pity option")
     assert(not GameConfig.DPS_UPGRADE_IDS.has("needle_range"), "The retired Needle range upgrade must not satisfy the DPS pity system")
+    var retired_fire_rate_ids := [
+        "needle_fire_rate",
+        "sniper_fire_rate",
+        "aura_fire_rate",
+        "field_fire_rate",
+        "chain_fire_rate",
+        "flak_fire_rate",
+        "orbital_fire_rate",
+        "detonator_fire_rate",
+    ]
+    for retired_id in retired_fire_rate_ids:
+        assert(not GameConfig.GLOBAL_UPGRADE_IDS.has(retired_id), "%s must not remain a global upgrade" % retired_id)
+        assert(not GameConfig.DPS_UPGRADE_IDS.has(retired_id), "%s must not remain in offense pity" % retired_id)
+        assert(not GameConfig.WEAPON_UPGRADE_CAPS.has(retired_id), "%s must not retain a rank cap" % retired_id)
+        assert(not GameConfig.UPGRADE_NAMES.has(retired_id), "%s must not retain card metadata" % retired_id)
+        assert(not GameConfig.UPGRADE_DESCRIPTIONS.has(retired_id), "%s must not retain a description" % retired_id)
+        assert(not world._is_upgrade_eligible(retired_id), "%s must never be eligible" % retired_id)
+        for weapon_id in GameConfig.WEAPON_IDS:
+            var weapon_upgrades: Array = GameConfig.WEAPON_UPGRADE_IDS.get(weapon_id, [])
+            assert(not weapon_upgrades.has(retired_id), "%s must be removed from every weapon tree" % retired_id)
     for roll_index in range(100):
         assert(not world._roll_upgrade_options().has("needle_range"), "Needle range must never return to level-up rolls")
         assert(not world._roll_weapon_upgrade_options().has("needle_range"), "Needle range must never return to boss rewards")
@@ -554,6 +576,124 @@ func _test_upgrade_roll_weights(world: SimulationWorld) -> void:
             low_frequency_count += 1
     assert(low_frequency_count > 600, "Low-frequency upgrades must remain possible")
     assert(low_frequency_count < 1100, "Low-frequency upgrades must roll substantially less often than normal upgrades")
+
+
+func _test_attack_speed_and_homing(world: SimulationWorld, hud: GameHud) -> void:
+    world.reset_run()
+    _clear_combat_state(world)
+    world.player_position = Vector2.ZERO
+    world.owned_weapons.assign(["needle", "sniper", "orbital"])
+    world._add_enemy(Vector2(300.0, 0.0), 10000.0, 0.0, 0.0, 14.0, 0, SimulationWorld.EnemyKind.NORMAL, Vector2.ZERO)
+
+    var baseline_dps := world._estimated_sustained_dps()
+    world.pending_upgrade = true
+    world.apply_upgrade("attack_speed")
+    assert(is_equal_approx(world.attack_speed_multiplier, 1.08), "One Attack Speed rank must produce an exact 1.08x multiplier")
+    assert(world.global_upgrade_levels["attack_speed"] == 1, "Attack Speed must track its global rank")
+    assert(
+        is_equal_approx(
+            world._effective_attack_cooldown(GameConfig.NEEDLE_COOLDOWN, 0.05),
+            GameConfig.NEEDLE_COOLDOWN / 1.08
+        ),
+        "Shared Attack Speed must shorten Needle's cycle"
+    )
+    assert(
+        is_equal_approx(
+            world._effective_attack_cooldown(GameConfig.SNIPER_COOLDOWN, 0.15),
+            GameConfig.SNIPER_COOLDOWN / 1.08
+        ),
+        "Shared Attack Speed must shorten Longshot's cycle"
+    )
+    world.needle_timer = 0.0
+    world._update_needle(0.0)
+    assert(is_equal_approx(world.needle_timer, GameConfig.NEEDLE_COOLDOWN / 1.08), "Needle firing must use the shared Attack Speed multiplier")
+    world.sniper_timer = 0.0
+    world._update_sniper(0.0)
+    assert(is_equal_approx(world.sniper_timer, GameConfig.SNIPER_COOLDOWN / 1.08), "Longshot firing must use the shared Attack Speed multiplier")
+
+    world._add_enemy(Vector2(100.0, 0.0), 10000.0, 0.0, 0.0, 14.0, 0, SimulationWorld.EnemyKind.NORMAL, Vector2.ZERO)
+    world.aura_echoes_remaining = 0
+    world.aura_timer = 0.0
+    world._update_aura(0.0)
+    assert(is_equal_approx(world.aura_timer, GameConfig.AURA_COOLDOWN / 1.08), "Aura Pulse must use the shared Attack Speed multiplier")
+    world.field_timer = 0.0
+    world._update_field_launcher(0.0)
+    assert(is_equal_approx(world.field_timer, GameConfig.FIELD_COOLDOWN / 1.08), "Mire Field deployment must use the shared Attack Speed multiplier")
+    world.chain_timer = 0.0
+    world._update_chain(0.0)
+    assert(is_equal_approx(world.chain_timer, GameConfig.CHAIN_COOLDOWN / 1.08), "Arc Chain must use the shared Attack Speed multiplier")
+    world.flak_timer = 0.0
+    world._update_flak(0.0)
+    assert(is_equal_approx(world.flak_timer, GameConfig.FLAK_COOLDOWN / 1.08), "Flak Burst must use the shared Attack Speed multiplier")
+    world.detonator_timer = 0.0
+    world._update_detonator(0.0)
+    assert(is_equal_approx(world.detonator_timer, GameConfig.DETONATOR_COOLDOWN / 1.08), "Detonator must use the shared Attack Speed multiplier")
+    assert(world._estimated_sustained_dps() > baseline_dps, "Shared Attack Speed must raise total loadout DPS")
+    world.orbital_count = 1
+    world.orbital_angle = 0.0
+    world._update_orbitals(0.25)
+    assert(
+        is_equal_approx(
+            world.orbital_angle,
+            fposmod(GameConfig.ORBITAL_ANGULAR_SPEED * 1.08 * 0.25, TAU)
+        ),
+        "Shared Attack Speed must accelerate Orbital rotation"
+    )
+    assert(
+        is_equal_approx(world._effective_orbital_hit_interval(), GameConfig.ORBITAL_HIT_INTERVAL / 1.08),
+        "Shared Attack Speed must shorten Orbital contact recovery"
+    )
+    for rank in range(1, GameConfig.GLOBAL_UPGRADE_CAPS["attack_speed"]):
+        world.pending_upgrade = true
+        world.apply_upgrade("attack_speed")
+    assert(
+        is_equal_approx(
+            world.attack_speed_multiplier,
+            1.0 + GameConfig.ATTACK_SPEED_PER_RANK * float(GameConfig.GLOBAL_UPGRADE_CAPS["attack_speed"])
+        ),
+        "Attack Speed must stop at its configured rank-eight multiplier"
+    )
+    assert(not world._is_upgrade_eligible("attack_speed"), "Attack Speed must leave level-up rolls at rank eight")
+    assert(not world._roll_upgrade_options().has("attack_speed"), "Capped Attack Speed must not be offered")
+
+    world.reset_run()
+    _clear_combat_state(world)
+    world.player_position = Vector2.ZERO
+    world._add_enemy(Vector2(300.0, 180.0), 10000.0, 0.0, 0.0, 14.0, 0, SimulationWorld.EnemyKind.NORMAL, Vector2.ZERO)
+    world._spawn_projectile(Vector2.RIGHT)
+    world._update_projectiles(1.0 / 60.0)
+    assert(absf(world.projectile_velocities[0].y) < 0.001, "A rank-zero Needle must continue in a straight line")
+
+    _clear_combat_state(world)
+    world.player_position = Vector2.ZERO
+    for rank in range(1, GameConfig.WEAPON_UPGRADE_CAPS["needle_homing"] + 1):
+        world.pending_upgrade = true
+        world.apply_upgrade("needle_homing")
+        assert(
+            is_equal_approx(world.needle_homing_strength, float(rank) * GameConfig.NEEDLE_HOMING_PER_RANK),
+            "Needle Guidance rank %d must produce exactly %d%% homing" % [rank, rank * 10]
+        )
+    assert(is_equal_approx(world.needle_homing_strength, 0.40), "Needle Guidance must cap at 40%")
+    assert(not world._is_upgrade_eligible("needle_homing"), "Needle Guidance must leave reward pools at rank four")
+    assert(not world._roll_weapon_upgrade_options().has("needle_homing"), "Capped Needle Guidance must not appear in boss rewards")
+    world._emit_stats()
+    assert(hud.weapon_hotbar_labels[0].text.contains("H40%"), "The hotbar must show max Needle homing")
+    assert(hud.build_label.text.contains("H40%"), "The build panel must show max Needle homing")
+    assert(hud.build_label.text.contains("ASPD x1.00"), "The build panel must show shared Attack Speed")
+
+    world._add_enemy(Vector2(300.0, 180.0), 10000.0, 0.0, 0.0, 14.0, 0, SimulationWorld.EnemyKind.NORMAL, Vector2.ZERO)
+    world.needle_timer = 0.0
+    world._update_needle(0.0)
+    assert(world.projectile_homing_has_targets[0], "Needle fire must reuse its selected target as the initial homing cache")
+    assert(world.projectile_homing_refresh_timers[0] > 0.0, "The initial firing target must avoid an immediate duplicate grid query")
+    _clear_combat_state(world)
+    world._add_enemy(Vector2(300.0, 180.0), 10000.0, 0.0, 0.0, 14.0, 0, SimulationWorld.EnemyKind.NORMAL, Vector2.ZERO)
+    world._spawn_projectile(Vector2.RIGHT)
+    assert(is_equal_approx(world.projectile_homing_strengths[0], 0.40), "Spawned Needles must retain the homing rank they were fired with")
+    var original_speed := world.projectile_velocities[0].length()
+    world._update_projectiles(1.0 / 60.0)
+    assert(world.projectile_velocities[0].y > 0.0, "A homing Needle must curve toward an off-axis target")
+    assert(is_equal_approx(world.projectile_velocities[0].length(), original_speed), "Needle homing must preserve projectile speed")
 
 
 func _test_player_invulnerability(world: SimulationWorld) -> void:
@@ -916,6 +1056,7 @@ func _test_targeting_modes(scene: Node, world: SimulationWorld, hud: GameHud) ->
 
     assert(hud.weapon_hotbar_labels.size() == GameConfig.WEAPON_SLOT_CAP, "The HUD must expose one targeting slot per weapon slot")
     assert(hud.weapon_hotbar_labels[0].text.contains("NEEDLE") and hud.weapon_hotbar_labels[0].text.contains("CLOSEST"), "Slot one must show Needle's targeting mode")
+    assert(hud.weapon_hotbar_labels[0].text.contains("H0%"), "Needle's hotbar slot must expose its homing strength")
     assert(hud.weapon_hotbar_labels[1].text.contains("LONGSHOT") and hud.weapon_hotbar_labels[1].text.contains("CLOSEST"), "Slot two must show Longshot's independent targeting mode")
     assert(hud.weapon_hotbar_labels[1].text.contains("x1.00"), "Longshot's hotbar slot must expose its current size multiplier")
     assert(hud.weapon_hotbar_labels[2].text.contains("AURA PULSE") and hud.weapon_hotbar_labels[2].text.contains("AREA"), "Non-targeted weapons must be labelled AREA")
@@ -1304,6 +1445,10 @@ func _clear_combat_state(world: SimulationWorld) -> void:
     world.projectile_attack_ids.clear()
     world.projectile_radii.clear()
     world.projectile_kinds.clear()
+    world.projectile_homing_strengths.clear()
+    world.projectile_homing_aim_positions.clear()
+    world.projectile_homing_refresh_timers.clear()
+    world.projectile_homing_has_targets.clear()
     world.field_positions.clear()
     world.field_lifetimes.clear()
     world.field_tick_timers.clear()

@@ -52,6 +52,7 @@ var is_running := false
 var pending_upgrade := false
 var pending_boss_rewards := 0
 var weapon_targeting_modes: Dictionary = {}
+var global_upgrade_levels: Dictionary = {}
 
 var elapsed_time := 0.0
 var kills := 0
@@ -85,6 +86,7 @@ var character_xp_gain := 1.0
 # `weapon_damage` is the uncapped global damage stat expressed in Needle base
 # damage units. Every weapon scales by weapon_damage / NEEDLE_DAMAGE.
 var weapon_damage := GameConfig.WEAPON_DAMAGE
+var attack_speed_multiplier := 1.0
 var owned_weapons: Array[String] = ["needle"]
 var weapon_upgrade_levels: Dictionary = {}
 
@@ -95,6 +97,7 @@ var weapon_lifetime := GameConfig.NEEDLE_LIFETIME
 var weapon_range := GameConfig.NEEDLE_RANGE
 var weapon_radius := GameConfig.NEEDLE_RADIUS
 var weapon_pierce := GameConfig.NEEDLE_PIERCE
+var needle_homing_strength := 0.0
 var needle_timer := 0.15
 
 var sniper_cooldown := GameConfig.SNIPER_COOLDOWN
@@ -200,6 +203,10 @@ var projectile_remaining_damage: Array[float] = []
 var projectile_attack_ids: Array[int] = []
 var projectile_radii: Array[float] = []
 var projectile_kinds: Array[int] = []
+var projectile_homing_strengths: Array[float] = []
+var projectile_homing_aim_positions: Array[Vector2] = []
+var projectile_homing_refresh_timers: Array[float] = []
+var projectile_homing_has_targets: Array[bool] = []
 
 var field_positions: Array[Vector2] = []
 var field_lifetimes: Array[float] = []
@@ -295,6 +302,10 @@ func reset_run() -> void:
     projectile_attack_ids.clear()
     projectile_radii.clear()
     projectile_kinds.clear()
+    projectile_homing_strengths.clear()
+    projectile_homing_aim_positions.clear()
+    projectile_homing_refresh_timers.clear()
+    projectile_homing_has_targets.clear()
     field_positions.clear()
     field_lifetimes.clear()
     field_tick_timers.clear()
@@ -344,7 +355,11 @@ func reset_run() -> void:
     player_one_shot_protection_timer = 0.0
 
     weapon_damage = GameConfig.NEEDLE_DAMAGE
+    attack_speed_multiplier = 1.0
     owned_weapons.assign(["needle"])
+    global_upgrade_levels.clear()
+    for upgrade_id in GameConfig.GLOBAL_UPGRADE_CAPS:
+        global_upgrade_levels[upgrade_id] = 0
     weapon_upgrade_levels.clear()
     for weapon_id in GameConfig.WEAPON_IDS:
         var upgrade_ids: Array = GameConfig.WEAPON_UPGRADE_IDS.get(weapon_id, [])
@@ -358,6 +373,7 @@ func reset_run() -> void:
     weapon_range = GameConfig.NEEDLE_RANGE
     weapon_radius = GameConfig.NEEDLE_RADIUS
     weapon_pierce = GameConfig.NEEDLE_PIERCE
+    needle_homing_strength = 0.0
     needle_timer = 0.15
 
     sniper_cooldown = GameConfig.SNIPER_COOLDOWN
@@ -494,25 +510,35 @@ func enable_benchmark(expanded_loadout: bool = false) -> void:
         owned_weapons.assign(["chain", "flak", "orbital", "detonator"])
     else:
         owned_weapons.assign(["needle", "sniper", "aura", "field"])
-    weapon_cooldown = 0.07
+    attack_speed_multiplier = (
+        1.0
+        + GameConfig.ATTACK_SPEED_PER_RANK
+        * float(GameConfig.GLOBAL_UPGRADE_CAPS["attack_speed"])
+    )
+    global_upgrade_levels["attack_speed"] = GameConfig.GLOBAL_UPGRADE_CAPS["attack_speed"]
+    # Scale the benchmark's synthetic base cooldowns upward so their effective
+    # cadence remains comparable while the shared max-rank attack-speed path is exercised.
+    weapon_cooldown = 0.07 * attack_speed_multiplier
     weapon_projectile_count = 10
     weapon_pierce = GameConfig.WEAPON_UPGRADE_CAPS["needle_pierce"]
+    needle_homing_strength = GameConfig.NEEDLE_HOMING_MAX
     weapon_upgrade_levels["needle_pierce"] = GameConfig.WEAPON_UPGRADE_CAPS["needle_pierce"]
-    sniper_cooldown = 0.55
+    weapon_upgrade_levels["needle_homing"] = GameConfig.WEAPON_UPGRADE_CAPS["needle_homing"]
+    sniper_cooldown = 0.55 * attack_speed_multiplier
     sniper_pierce = 3
-    aura_cooldown = 0.85
+    aura_cooldown = 0.85 * attack_speed_multiplier
     aura_echoes = 3
-    field_cooldown = 0.75
+    field_cooldown = 0.75 * attack_speed_multiplier
     field_duration = 5.5
     # Push the new weapons to their upgraded ceilings so the run measures the
-    # worst case: maximum fire rate, maximum satellite count, maximum shells.
-    chain_cooldown = 0.18
+    # worst case: maximum shared attack speed, satellite count, and shells.
+    chain_cooldown = 0.18 * attack_speed_multiplier
     chain_jumps = 6
-    flak_cooldown = 0.20
+    flak_cooldown = 0.20 * attack_speed_multiplier
     flak_pellets = 12
     orbital_count = 8
-    orbital_hit_interval = 0.25
-    detonator_cooldown = 0.45
+    orbital_hit_interval = 0.25 * attack_speed_multiplier
+    detonator_cooldown = 0.45 * attack_speed_multiplier
     enemy_positions.clear()
     enemy_health.clear()
     enemy_max_health.clear()
@@ -809,11 +835,12 @@ func _update_needle(delta: float) -> void:
             weapon_speed,
             weapon_lifetime,
             weapon_radius,
-            ProjectileKind.NEEDLE
+            ProjectileKind.NEEDLE,
+            target_index
         )
     if projectile_positions.size() > projectile_count_before:
         _request_sound("needle_fire")
-    needle_timer += maxf(0.05, weapon_cooldown)
+    needle_timer += _effective_attack_cooldown(weapon_cooldown, 0.05)
 
 
 func _update_sniper(delta: float) -> void:
@@ -838,7 +865,7 @@ func _update_sniper(delta: float) -> void:
     )
     if projectile_positions.size() > projectile_count_before:
         _request_sound("longshot_fire")
-    sniper_timer += maxf(0.15, sniper_cooldown)
+    sniper_timer += _effective_attack_cooldown(sniper_cooldown, 0.15)
 
 
 func _update_aura(delta: float) -> void:
@@ -862,7 +889,7 @@ func _update_aura(delta: float) -> void:
     _emit_aura_pulse()
     aura_echoes_remaining = aura_echoes
     aura_echo_timer = GameConfig.AURA_ECHO_INTERVAL
-    aura_timer += maxf(0.20, aura_cooldown)
+    aura_timer += _effective_attack_cooldown(aura_cooldown, 0.20)
 
 
 func _emit_aura_pulse(play_sound := true) -> void:
@@ -885,7 +912,7 @@ func _update_field_launcher(delta: float) -> void:
     if field_timer > 0.0:
         return
     _spawn_field()
-    field_timer += maxf(0.20, field_cooldown)
+    field_timer += _effective_attack_cooldown(field_cooldown, 0.20)
 
 
 func _spawn_field() -> void:
@@ -978,7 +1005,7 @@ func _update_chain(delta: float) -> void:
 
     chain_visual_timer = GameConfig.CHAIN_VISUAL_DURATION
     _request_sound("chain_arc")
-    chain_timer += maxf(0.20, chain_cooldown)
+    chain_timer += _effective_attack_cooldown(chain_cooldown, 0.20)
 
 
 func _find_chain_jump_target(origin: Vector2) -> int:
@@ -1033,7 +1060,7 @@ func _update_flak(delta: float) -> void:
         flak_visual_direction = base_direction
         flak_visual_timer = GameConfig.FLAK_VISUAL_DURATION
         _request_sound("flak_fire")
-    flak_timer += maxf(0.15, flak_cooldown)
+    flak_timer += _effective_attack_cooldown(flak_cooldown, 0.15)
 
 
 # Satellites are repositioned from an angle each frame; the enemy scan only runs
@@ -1049,7 +1076,7 @@ func _update_orbitals(delta: float) -> void:
     if desired <= 0:
         return
 
-    orbital_angle = fposmod(orbital_angle + orbital_angular_speed * delta, TAU)
+    orbital_angle = fposmod(orbital_angle + orbital_angular_speed * attack_speed_multiplier * delta, TAU)
     var angle_step := TAU / float(desired)
     var damage_instance := _scaled_weapon_damage(GameConfig.ORBITAL_DAMAGE)
     for i in range(desired):
@@ -1071,7 +1098,7 @@ func _update_orbitals(delta: float) -> void:
             if _queue_fixed_damage(enemy_index, damage_instance) > 0.0:
                 struck = true
         if struck:
-            orbital_hit_timers[i] = orbital_hit_interval
+            orbital_hit_timers[i] = _effective_orbital_hit_interval()
             # Gated by the contact interval, and the cue's own cooldown collapses
             # simultaneous satellite hits into one voice.
             _request_sound("orbital_contact")
@@ -1088,7 +1115,7 @@ func _update_detonator(delta: float) -> void:
         return
 
     _spawn_detonator_shell(enemy_positions[target_index])
-    detonator_timer += maxf(0.30, detonator_cooldown)
+    detonator_timer += _effective_attack_cooldown(detonator_cooldown, 0.30)
 
 
 func _spawn_detonator_shell(target_position: Vector2) -> void:
@@ -1166,13 +1193,25 @@ func _remove_detonator_shell(index: int) -> void:
     detonator_shell_lifetimes.pop_back()
 
 
+func _effective_attack_cooldown(base_cooldown: float, minimum_cooldown: float) -> float:
+    return maxf(
+        minimum_cooldown,
+        base_cooldown / maxf(0.01, attack_speed_multiplier)
+    )
+
+
+func _effective_orbital_hit_interval() -> float:
+    return maxf(0.12, orbital_hit_interval / maxf(0.01, attack_speed_multiplier))
+
+
 func _spawn_projectile(
     direction: Vector2,
     damage_budget: float = -1.0,
     speed: float = -1.0,
     lifetime: float = -1.0,
     radius: float = -1.0,
-    kind: int = ProjectileKind.NEEDLE
+    kind: int = ProjectileKind.NEEDLE,
+    homing_target_index: int = -1
 ) -> void:
     if projectile_positions.size() >= GameConfig.PROJECTILE_CAP:
         return
@@ -1192,6 +1231,20 @@ func _spawn_projectile(
     projectile_attack_ids.append(next_attack_id)
     projectile_radii.append(resolved_radius)
     projectile_kinds.append(kind)
+    var homing_strength := needle_homing_strength if kind == ProjectileKind.NEEDLE else 0.0
+    var has_initial_homing_target := (
+        homing_strength > 0.0
+        and homing_target_index >= 0
+        and homing_target_index < enemy_positions.size()
+    )
+    projectile_homing_strengths.append(homing_strength)
+    projectile_homing_aim_positions.append(
+        enemy_positions[homing_target_index] if has_initial_homing_target else Vector2.ZERO
+    )
+    projectile_homing_refresh_timers.append(
+        GameConfig.NEEDLE_HOMING_REFRESH_INTERVAL if has_initial_homing_target else 0.0
+    )
+    projectile_homing_has_targets.append(has_initial_homing_target)
     next_attack_id += 1
     if next_attack_id >= 2147483000:
         next_attack_id = 1
@@ -1214,6 +1267,7 @@ func _has_weapon(weapon_id: String) -> bool:
 
 func _update_projectiles(delta: float) -> void:
     for projectile_index in range(projectile_positions.size() - 1, -1, -1):
+        _steer_needle_projectile(projectile_index, delta)
         var start := projectile_positions[projectile_index]
         var finish := start + projectile_velocities[projectile_index] * delta
         # The sweep below needs an unwrapped start->finish segment; only the
@@ -1294,6 +1348,9 @@ func _update_projectiles(delta: float) -> void:
             hit_damage.append(damage_value)
             enemy_reserved_damage[enemy_index] += damage_value
             projectile_remaining_damage[projectile_index] -= raw_damage_spent
+            if projectile_kinds[projectile_index] == ProjectileKind.NEEDLE:
+                projectile_homing_refresh_timers[projectile_index] = 0.0
+                projectile_homing_has_targets[projectile_index] = false
 
             if projectile_remaining_damage[projectile_index] <= 0.0001:
                 exhausted = true
@@ -1301,6 +1358,91 @@ func _update_projectiles(delta: float) -> void:
 
         if exhausted:
             _remove_projectile(projectile_index)
+
+
+func _steer_needle_projectile(projectile_index: int, delta: float) -> void:
+    if projectile_kinds[projectile_index] != ProjectileKind.NEEDLE:
+        return
+    var homing_strength := projectile_homing_strengths[projectile_index]
+    if homing_strength <= 0.0:
+        return
+    var velocity := projectile_velocities[projectile_index]
+    var speed := velocity.length()
+    if speed <= 0.001:
+        return
+
+    projectile_homing_refresh_timers[projectile_index] -= delta
+    if projectile_homing_refresh_timers[projectile_index] <= 0.0:
+        var target_index := _find_needle_homing_target(
+            projectile_positions[projectile_index],
+            GameConfig.NEEDLE_HOMING_ACQUISITION_RANGE,
+            projectile_attack_ids[projectile_index]
+        )
+        projectile_homing_has_targets[projectile_index] = target_index >= 0
+        if target_index >= 0:
+            projectile_homing_aim_positions[projectile_index] = enemy_positions[target_index]
+        # Queries are much more expensive than steering. Cache a target point for
+        # several ticks and stagger refreshes by attack ID so a Split Shot volley
+        # never scans the same grid cells for every projectile on one frame.
+        var stagger := (
+            float(projectile_attack_ids[projectile_index] % 4)
+            * GameConfig.NEEDLE_HOMING_REFRESH_INTERVAL
+            * 0.125
+        )
+        projectile_homing_refresh_timers[projectile_index] = (
+            GameConfig.NEEDLE_HOMING_REFRESH_INTERVAL + stagger
+        )
+
+    if not projectile_homing_has_targets[projectile_index]:
+        return
+    var desired_direction := WorldSpace.direction(
+        projectile_positions[projectile_index],
+        projectile_homing_aim_positions[projectile_index]
+    )
+    if desired_direction == Vector2.ZERO:
+        return
+    var current_angle := velocity.angle()
+    var desired_angle := desired_direction.angle()
+    var maximum_turn := (
+        GameConfig.NEEDLE_HOMING_MAX_TURN_RATE
+        * homing_strength
+        * delta
+    )
+    var turn := clampf(
+        angle_difference(current_angle, desired_angle),
+        -maximum_turn,
+        maximum_turn
+    )
+    projectile_velocities[projectile_index] = Vector2.from_angle(current_angle + turn) * speed
+
+
+func _find_needle_homing_target(origin: Vector2, max_range: float, attack_id: int) -> int:
+    var best_index := -1
+    var best_is_boss := false
+    var best_distance_squared := max_range * max_range
+    var strongest_mode := get_weapon_targeting_mode("needle") == TargetingMode.STRONGEST
+    _collect_enemy_candidates(origin, max_range)
+    for enemy_index in enemy_query_candidates:
+        if enemy_health[enemy_index] - enemy_reserved_damage[enemy_index] <= 0.0:
+            continue
+        if enemy_last_hit_attack[enemy_index] == attack_id:
+            continue
+        var distance_squared := WorldSpace.distance_squared(origin, enemy_positions[enemy_index])
+        if distance_squared >= max_range * max_range:
+            continue
+        var is_boss := enemy_kinds[enemy_index] == EnemyKind.BOSS
+        if strongest_mode:
+            if best_index < 0 or (is_boss and not best_is_boss):
+                best_index = enemy_index
+                best_is_boss = is_boss
+                best_distance_squared = distance_squared
+            elif is_boss == best_is_boss and distance_squared < best_distance_squared:
+                best_index = enemy_index
+                best_distance_squared = distance_squared
+        elif distance_squared < best_distance_squared:
+            best_index = enemy_index
+            best_distance_squared = distance_squared
+    return best_index
 
 
 func _damage_multiplier_for_enemy(enemy_index: int) -> float:
@@ -1917,6 +2059,11 @@ func apply_upgrade(upgrade_id: String) -> void:
         match upgrade_id:
             "damage":
                 weapon_damage *= 1.20
+            "attack_speed":
+                attack_speed_multiplier = minf(
+                    1.0 + GameConfig.ATTACK_SPEED_PER_RANK * float(GameConfig.GLOBAL_UPGRADE_CAPS["attack_speed"]),
+                    attack_speed_multiplier + GameConfig.ATTACK_SPEED_PER_RANK
+                )
             "move_speed":
                 player_move_speed *= 1.10
                 _update_camera_zoom()
@@ -1928,14 +2075,15 @@ func apply_upgrade(upgrade_id: String) -> void:
                 player_armor += 10.0
             "regen":
                 player_regen_rate += 0.005
-            "needle_fire_rate":
-                weapon_cooldown = maxf(0.05, weapon_cooldown * 0.88)
+            "needle_homing":
+                needle_homing_strength = minf(
+                    GameConfig.NEEDLE_HOMING_MAX,
+                    needle_homing_strength + GameConfig.NEEDLE_HOMING_PER_RANK
+                )
             "needle_projectile_count":
                 weapon_projectile_count += 1
             "needle_pierce":
                 weapon_pierce += 1
-            "sniper_fire_rate":
-                sniper_cooldown = maxf(0.20, sniper_cooldown * 0.90)
             "sniper_pierce":
                 sniper_pierce += 1
             "sniper_range":
@@ -1943,20 +2091,14 @@ func apply_upgrade(upgrade_id: String) -> void:
                 sniper_lifetime *= 1.12
             "sniper_size":
                 sniper_radius *= GameConfig.SNIPER_SIZE_UPGRADE_MULTIPLIER
-            "aura_fire_rate":
-                aura_cooldown = maxf(0.35, aura_cooldown * 0.90)
             "aura_radius":
                 aura_radius *= 1.12
             "aura_echoes":
                 aura_echoes += 1
-            "field_fire_rate":
-                field_cooldown = maxf(0.35, field_cooldown * 0.90)
             "field_radius":
                 field_radius *= 1.12
             "field_duration":
                 field_duration += 0.50
-            "chain_fire_rate":
-                chain_cooldown = maxf(0.20, chain_cooldown * 0.89)
             "chain_jumps":
                 chain_jumps = mini(GameConfig.CHAIN_MAX_JUMPS, chain_jumps + 1)
             "chain_falloff":
@@ -1964,8 +2106,6 @@ func apply_upgrade(upgrade_id: String) -> void:
             "chain_range":
                 chain_range *= 1.12
                 chain_jump_radius *= 1.12
-            "flak_fire_rate":
-                flak_cooldown = maxf(0.15, flak_cooldown * 0.90)
             "flak_pellets":
                 flak_pellets += 1
             "flak_spread":
@@ -1975,15 +2115,10 @@ func apply_upgrade(upgrade_id: String) -> void:
                 flak_lifetime *= 1.15
             "orbital_count":
                 orbital_count = mini(GameConfig.ORBITAL_CAP, orbital_count + 1)
-            "orbital_fire_rate":
-                orbital_angular_speed *= 1.12
-                orbital_hit_interval = maxf(0.12, orbital_hit_interval * 0.90)
             "orbital_radius":
                 orbital_radius *= 1.12
             "orbital_size":
                 orbital_hit_radius *= 1.20
-            "detonator_fire_rate":
-                detonator_cooldown = maxf(0.30, detonator_cooldown * 0.90)
             "detonator_blast":
                 detonator_blast_radius *= 1.12
             "detonator_range":
@@ -1991,7 +2126,9 @@ func apply_upgrade(upgrade_id: String) -> void:
             _:
                 return
 
-        if weapon_upgrade_levels.has(upgrade_id):
+        if global_upgrade_levels.has(upgrade_id):
+            global_upgrade_levels[upgrade_id] += 1
+        elif weapon_upgrade_levels.has(upgrade_id):
             weapon_upgrade_levels[upgrade_id] += 1
 
     pending_upgrade = false
@@ -2008,7 +2145,10 @@ func _weapon_for_upgrade(upgrade_id: String) -> String:
 
 func _is_upgrade_eligible(upgrade_id: String) -> bool:
     if GameConfig.GLOBAL_UPGRADE_IDS.has(upgrade_id):
-        return true
+        var global_cap: int = GameConfig.GLOBAL_UPGRADE_CAPS.get(upgrade_id, 0)
+        if global_cap <= 0:
+            return true
+        return int(global_upgrade_levels.get(upgrade_id, 0)) < global_cap
     if GameConfig.WEAPON_UNLOCK_IDS.has(upgrade_id):
         var unlock_weapon_id: String = GameConfig.WEAPON_UNLOCK_IDS[upgrade_id]
         return owned_weapons.size() < GameConfig.WEAPON_SLOT_CAP and not owned_weapons.has(unlock_weapon_id)
@@ -2064,7 +2204,8 @@ func _eligible_dps_upgrades() -> Array[String]:
 func _roll_upgrade_options() -> Array[String]:
     var pool: Array[String] = []
     for upgrade_id in GameConfig.GLOBAL_UPGRADE_IDS:
-        pool.append(upgrade_id)
+        if _is_upgrade_eligible(upgrade_id):
+            pool.append(upgrade_id)
     pool.append_array(_eligible_owned_weapon_upgrades())
 
     var options: Array[String] = []
@@ -2138,23 +2279,23 @@ func _estimated_sustained_dps() -> float:
         + float(maxi(0, weapon_projectile_count - 1))
         * GameConfig.NEEDLE_EXTRA_PROJECTILE_DPS_FACTOR
     )
-    var total_dps := weapon_damage * needle_effective_projectiles / maxf(0.01, weapon_cooldown)
+    var total_dps := weapon_damage * needle_effective_projectiles / _effective_attack_cooldown(weapon_cooldown, 0.05)
 
     if _has_weapon("sniper"):
-        total_dps += _scaled_weapon_damage(GameConfig.SNIPER_DAMAGE) / maxf(0.01, sniper_cooldown)
+        total_dps += _scaled_weapon_damage(GameConfig.SNIPER_DAMAGE) / _effective_attack_cooldown(sniper_cooldown, 0.15)
 
     if _has_weapon("aura"):
         total_dps += (
             _scaled_weapon_damage(GameConfig.AURA_DAMAGE)
             * float(aura_echoes + 1)
-            / maxf(0.01, aura_cooldown)
+            / _effective_attack_cooldown(aura_cooldown, 0.20)
             * GameConfig.AURA_DPS_UPTIME_FACTOR
         )
 
     if _has_weapon("field"):
         var field_equivalents := minf(
             GameConfig.FIELD_DPS_MAX_EQUIVALENTS,
-            field_duration / maxf(0.01, field_cooldown) * GameConfig.FIELD_DPS_OVERLAP_FACTOR
+            field_duration / _effective_attack_cooldown(field_cooldown, 0.20) * GameConfig.FIELD_DPS_OVERLAP_FACTOR
         )
         total_dps += (
             _scaled_weapon_damage(GameConfig.FIELD_DAMAGE)
@@ -2174,7 +2315,7 @@ func _estimated_sustained_dps() -> float:
         total_dps += (
             _scaled_weapon_damage(GameConfig.CHAIN_DAMAGE)
             * chain_multiplier
-            / maxf(0.01, chain_cooldown)
+            / _effective_attack_cooldown(chain_cooldown, 0.20)
             * GameConfig.CHAIN_DPS_UPTIME_FACTOR
         )
 
@@ -2182,7 +2323,7 @@ func _estimated_sustained_dps() -> float:
         total_dps += (
             _scaled_weapon_damage(GameConfig.FLAK_DAMAGE)
             * float(maxi(1, flak_pellets))
-            / maxf(0.01, flak_cooldown)
+            / _effective_attack_cooldown(flak_cooldown, 0.15)
             * GameConfig.FLAK_DPS_UPTIME_FACTOR
         )
 
@@ -2190,14 +2331,14 @@ func _estimated_sustained_dps() -> float:
         total_dps += (
             _scaled_weapon_damage(GameConfig.ORBITAL_DAMAGE)
             * float(clampi(orbital_count, 0, GameConfig.ORBITAL_CAP))
-            / maxf(0.01, orbital_hit_interval)
+            / _effective_orbital_hit_interval()
             * GameConfig.ORBITAL_DPS_UPTIME_FACTOR
         )
 
     if _has_weapon("detonator"):
         total_dps += (
             _scaled_weapon_damage(GameConfig.DETONATOR_DAMAGE)
-            / maxf(0.01, detonator_cooldown)
+            / _effective_attack_cooldown(detonator_cooldown, 0.30)
             * GameConfig.DETONATOR_DPS_UPTIME_FACTOR
         )
 
@@ -2604,6 +2745,10 @@ func _remove_projectile(index: int) -> void:
         projectile_attack_ids[index] = projectile_attack_ids[last]
         projectile_radii[index] = projectile_radii[last]
         projectile_kinds[index] = projectile_kinds[last]
+        projectile_homing_strengths[index] = projectile_homing_strengths[last]
+        projectile_homing_aim_positions[index] = projectile_homing_aim_positions[last]
+        projectile_homing_refresh_timers[index] = projectile_homing_refresh_timers[last]
+        projectile_homing_has_targets[index] = projectile_homing_has_targets[last]
     projectile_positions.pop_back()
     projectile_velocities.pop_back()
     projectile_lifetimes.pop_back()
@@ -2611,6 +2756,10 @@ func _remove_projectile(index: int) -> void:
     projectile_attack_ids.pop_back()
     projectile_radii.pop_back()
     projectile_kinds.pop_back()
+    projectile_homing_strengths.pop_back()
+    projectile_homing_aim_positions.pop_back()
+    projectile_homing_refresh_timers.pop_back()
+    projectile_homing_has_targets.pop_back()
 
 
 func _remove_field(index: int) -> void:
@@ -2686,6 +2835,7 @@ func get_stats_snapshot() -> Dictionary:
         "bosses": get_boss_count(),
         "damage": weapon_damage,
         "damage_multiplier": weapon_damage / GameConfig.NEEDLE_DAMAGE,
+        "attack_speed_multiplier": attack_speed_multiplier,
         "estimated_dps": _estimated_sustained_dps(),
         "required_dps": _required_sustained_dps(),
         "offense_pity_choices": _offense_pity_option_count(),
@@ -2696,9 +2846,10 @@ func get_stats_snapshot() -> Dictionary:
         "weapon_targeting_modes": targeting_modes_snapshot,
         "character": selected_character,
         "character_name": GameConfig.CHARACTERS.get(selected_character, {}).get("name", selected_character),
-        "cooldown": weapon_cooldown,
+        "cooldown": _effective_attack_cooldown(weapon_cooldown, 0.05),
         "projectile_count": weapon_projectile_count,
         "pierce": weapon_pierce,
+        "needle_homing_percent": roundi(needle_homing_strength * 100.0),
         "needle_range": weapon_range,
         "sniper_radius": sniper_radius,
         "sniper_size_multiplier": sniper_radius / GameConfig.SNIPER_RADIUS,
