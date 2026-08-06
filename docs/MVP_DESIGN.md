@@ -156,7 +156,7 @@ Projectile pierce is a consumable damage budget:
 
 `total damage budget = projectile damage × (pierce + 1)`
 
-A projectile applies only enough damage to consume the target's remaining health, then carries any overkill budget into later enemies. For example, a 10-damage projectile with 0 pierce can kill two 5-health enemies. If a target survives the hit, it consumes the projectile's entire remaining budget and stops it.
+Each body consumes at most one base hit from that budget. A low-health target consumes only enough raw damage to finish its remaining health, preserving overkill for later bodies. A high-health target—including a boss—takes one hit and the projectile continues while another hit budget remains. For example, a 10-damage projectile with 1 pierce can hit a full-health boss for 10 damage and then hit another enemy for up to 10 damage.
 
 A projectile can damage each target only once during its lifetime. Repeat-hit behavior belongs to explicitly persistent or melee attacks. Aura Pulse implements it as separate delayed echoes rather than multiple damage instances in one frame.
 
@@ -222,18 +222,18 @@ On level-up:
 - Preserve XP overflow.
 - Through level 30, estimate sustained build DPS and compare it with current normal-enemy health using a 0.9-second target kill time. When output falls below the target, guarantee one eligible DPS-improving choice; below 65% of the target, guarantee two. Valid pity choices include Base Damage, shared Attack Speed, Needle homing and projectile count, Aura echoes, Mire uptime, and equivalent output upgrades for the other owned weapons. The guarantee ends after level 30 so endless enemy scaling can still overtake the player.
 
-Most global upgrades remain eligible indefinitely. Shared Attack Speed is intentionally capped because it improves the entire equipped loadout at once:
+Most global upgrades remain eligible indefinitely. Shared Attack Speed has a normal level-up cap because it improves the entire equipped loadout at once, but exhausted boss rewards may push it beyond that denominator:
 
 | Upgrade | Effect |
 |---|---|
 | Base damage | +20% damage for every weapon |
-| Attack speed | +8% attack speed for every weapon, capped at 8 ranks |
+| Attack speed | +8% attack speed for every weapon; ordinary rolls stop at 8 ranks, exhausted boss rewards can exceed 8 |
 | Move speed | +10% movement speed and zoom the camera out by the same multiplier |
 | Maximum health | +15% max health and heal the amount gained |
 | Armor | +10 armor |
 | Regeneration | +0.5% max health/s |
 
-Each owned weapon contributes its own capped choices to ordinary level-ups. Capped upgrades disappear from future rolls. Armor, regeneration, maximum health, and Longshot range share a low-frequency tier at 20% of normal upgrade weight; Longshot range keeps that weighting in weapon-only boss rewards.
+Each owned weapon contributes its own capped choices to ordinary level-ups. Capped upgrades disappear from future rolls. Every choice card shows its current rank: `current/max` for capped tracks and only `current` for unlimited tracks. Overcapped Attack Speed deliberately displays values such as `9/8`. Armor, regeneration, maximum health, and Longshot range share a low-frequency tier at 20% of normal upgrade weight; Longshot range keeps that weighting in weapon-only boss rewards.
 
 | Weapon | Capped upgrade tracks |
 |---|---|
@@ -246,7 +246,7 @@ Each owned weapon contributes its own capped choices to ordinary level-ups. Capp
 | Orbital | Satellite count 8, orbit radius 5, satellite size 5 |
 | Detonator | Blast radius 6, range 5 |
 
-Boss rewards contain only weapon content: at least one new weapon is guaranteed while an empty slot exists, and the remaining choices are eligible, not-yet-capped upgrades for already owned weapons. At the four-slot cap, new-weapon choices disappear.
+Boss rewards prioritize weapon content: at least one new weapon is guaranteed while an empty slot exists, and the remaining choices are eligible, not-yet-capped upgrades for already owned weapons. At the four-slot cap, new-weapon choices disappear. Once every equipped weapon track is exhausted, each later boss gives a deterministic shared Attack Speed fallback that can exceed the ordinary 8-rank cap.
 
 Pickup radius remains a fixed player stat while health pickups are the only collectible. It should not appear in upgrade rolls unless the game later adds enough collectible objects to make the choice meaningful.
 
@@ -321,10 +321,10 @@ The first boss should:
 - Appear one to two screens away.
 - Persist if ignored.
 - Patrol or pursue within a broad region rather than following forever at any distance.
-- Award 40 XP under the 2× pace setting and queue a paused weapon-only reward. Guarantee a new weapon while a slot remains; otherwise offer eligible upgrades from owned weapon pools.
+- Award 40 XP under the 2× pace setting and queue a paused weapon-focused reward. Guarantee a new weapon while a slot remains; otherwise offer eligible upgrades from owned weapon pools, falling back to overcap Attack Speed after all weapon tracks are exhausted.
 - Never drop a health pickup.
 - Scale health as `550 × (1 + minutes + 0.20 × minutes²)`.
-- After a full-damage hit, gain 0.35 seconds of 80% damage mitigation. This is resistance, not invulnerability, and raw projectile damage budget is still consumed.
+- After a full-damage hit, gain 0.35 seconds of 80% damage mitigation. This is resistance, not invulnerability; a protected boss still consumes one projectile hit budget rather than the projectile's entire remaining pierce budget.
 - Use one clearly telegraphed attack.
 - Remain marked on the minimap.
 

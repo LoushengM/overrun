@@ -308,7 +308,8 @@ func toggle_performance_overlay() -> bool:
 func show_upgrade(
     options: Array[String],
     title_text: String = "LEVEL UP",
-    subtitle_text: String = "Click a choice or press 1, 2, or 3"
+    subtitle_text: String = "Click a choice or press 1, 2, or 3",
+    progress_snapshot: Dictionary = {}
 ) -> void:
     upgrade_title.text = title_text
     upgrade_subtitle.text = "%s — arrows select, Enter/Space confirm, or press 1/2/3" % subtitle_text
@@ -318,10 +319,19 @@ func show_upgrade(
             var upgrade_id := options[i]
             button.visible = true
             button.set_meta("upgrade_id", upgrade_id)
-            button.text = "[%d]  %s\n%s" % [
+            var progress: Dictionary = progress_snapshot.get(upgrade_id, {})
+            var current_rank := int(progress.get("current", 0))
+            var maximum_rank := int(progress.get("maximum", 0))
+            var rank_text := (
+                "RANK %d/%d" % [current_rank, maximum_rank]
+                if maximum_rank > 0
+                else "RANK %d" % current_rank
+            )
+            button.text = "[%d]  %s\n%s\n%s" % [
                 i + 1,
                 GameConfig.UPGRADE_NAMES.get(upgrade_id, upgrade_id),
                 GameConfig.UPGRADE_DESCRIPTIONS.get(upgrade_id, ""),
+                rank_text,
             ]
         else:
             button.visible = false
@@ -551,9 +561,9 @@ func _build_upgrade_overlay() -> void:
     panel.anchor_right = 0.5
     panel.anchor_bottom = 0.5
     panel.offset_left = -390.0
-    panel.offset_top = -210.0
+    panel.offset_top = -235.0
     panel.offset_right = 390.0
-    panel.offset_bottom = 210.0
+    panel.offset_bottom = 235.0
     panel.add_theme_stylebox_override("panel", _make_panel_style(UI_PANEL, UI_BORDER, 2, 9))
     upgrade_overlay.add_child(panel)
 
@@ -576,7 +586,7 @@ func _build_upgrade_overlay() -> void:
 
     for i in range(3):
         var button := Button.new()
-        button.custom_minimum_size = Vector2(730.0, 82.0)
+        button.custom_minimum_size = Vector2(730.0, 94.0)
         button.add_theme_font_size_override("font_size", 19)
         button.focus_mode = Control.FOCUS_ALL
         _style_button(button)

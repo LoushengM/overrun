@@ -110,7 +110,12 @@ func _on_level_up_requested(options: Array[String]) -> void:
     level_up_choice_open = true
     audio.play_cue("level_up")
     get_tree().paused = true
-    hud.show_upgrade(options, "LEVEL UP", "Choose any eligible upgrade")
+    hud.show_upgrade(
+        options,
+        "LEVEL UP",
+        "Choose any eligible upgrade",
+        world.get_upgrade_progress_snapshot(options)
+    )
 
 
 func _on_boss_upgrade_requested(options: Array[String]) -> void:
@@ -121,7 +126,12 @@ func _on_boss_upgrade_requested(options: Array[String]) -> void:
     level_up_choice_open = false
     audio.play_cue("boss_reward")
     get_tree().paused = true
-    hud.show_upgrade(options, "BOSS REWARD", "Choose a new weapon or an owned-weapon upgrade")
+    hud.show_upgrade(
+        options,
+        "BOSS REWARD",
+        "Choose a weapon upgrade; exhausted builds gain overcap Attack Speed",
+        world.get_upgrade_progress_snapshot(options)
+    )
 
 
 func _on_upgrade_selected(upgrade_id: String) -> void:

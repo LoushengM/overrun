@@ -10,14 +10,14 @@ The repository intentionally favors a small playable loop over a content framewo
 - Eight weapons competing for four loadout slots
 - An array-based enemy and projectile simulation with batched rendering
 - A 2× compressed progression clock: doubled XP rewards and spawn throughput, half-time bosses, and twice-as-fast enemy scaling
-- XP with three-choice paused level-ups and level-30 DPS-tracking offense pity
-- Infinite global damage scaling, capped shared Attack Speed, distinct weapon upgrade pools, and four-rank Needle homing
+- XP with three-choice paused level-ups, visible upgrade-rank counts, and level-30 DPS-tracking offense pity
+- Infinite global damage scaling, shared Attack Speed with an 8-rank normal cap and boss overcap fallback, distinct weapon upgrade pools, and four-rank Needle homing
 - Armor with diminishing returns, brief post-hit invulnerability frames, and lethal-hit protection above 50% HP
 - Regeneration only below 50% health after a damage delay
 - Persistent percentage-based health pickups
 - Endless health, damage, and uncapped movement scaling with anti-lull surges and a live-population logarithmic spawn throttle
 - Proportional camera zoom-out whenever player movement speed increases
-- Fast-scaling persistent bosses with telegraphed attacks, burst protection, and weapon-only rewards that can unlock open weapon slots
+- Fast-scaling persistent bosses with telegraphed attacks, burst protection, weapon-focused rewards, and overcap Attack Speed after every weapon track is exhausted
 - A minimap that always marks bosses
 - A generated robot-themed sound system for weapons, enemies, bosses, pickups, UI navigation, upgrades, targeting, restart, and death
 - Death summary and one-input restart
@@ -107,7 +107,7 @@ assets/audio/                generated robot-themed sound pack and documentation
 scenes/main.tscn            minimal scene composition
 ```
 
-The simulation uses no node per enemy and no signal per hit. Large populations live in compact parallel arrays, collision uses a uniform spatial grid with reused buckets, and normal enemies and projectiles render through `MultiMesh` batches. Needle and Longshot require targets in their own ranges, Aura Pulse schedules delayed echo pulses that recheck nearby enemies, and Mire Field persists and slows nearby enemies without requiring a target.
+The simulation uses no node per enemy and no signal per hit. Large populations live in compact parallel arrays, collision uses a uniform spatial grid with reused buckets, and normal enemies and projectiles render through `MultiMesh` batches. Needle and Longshot pierce through bosses one hit budget at a time, Aura Pulse schedules delayed echo pulses that recheck nearby enemies, and Mire Field persists and slows nearby enemies without requiring a target.
 
 ## Generated audio
 

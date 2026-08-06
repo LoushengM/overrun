@@ -585,7 +585,7 @@ const UPGRADE_NAMES := {
 
 const UPGRADE_DESCRIPTIONS := {
     "damage": "+20% damage for all weapons",
-    "attack_speed": "+8% attack speed for every weapon (max 8)",
+    "attack_speed": "+8% all-weapon attack speed; normal cap 8, bosses can overcap",
     "move_speed": "+10% movement speed and proportional camera zoom-out",
     "max_health": "+15% max health and heal the gain",
     "armor": "+10 armor",
@@ -595,8 +595,8 @@ const UPGRADE_DESCRIPTIONS := {
     "unlock_field": "Equip persistent slowing damage zones",
     "needle_homing": "+10% Needle homing strength (10/20/30/40%)",
     "needle_projectile_count": "+1 Needle projectile per attack",
-    "needle_pierce": "+1 full Needle damage budget (max 4)",
-    "sniper_pierce": "+1 full Longshot damage budget (max 4)",
+    "needle_pierce": "+1 full Needle hit budget; pierces through bosses (max 4)",
+    "sniper_pierce": "+1 full Longshot hit budget; pierces through bosses (max 4)",
     "sniper_range": "+12% Longshot targeting and travel range",
     "sniper_size": "+45% Longshot collision radius; the projectile visibly grows",
     "aura_radius": "+12% Aura Pulse radius",

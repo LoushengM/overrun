@@ -51,6 +51,7 @@ var benchmark_mode := false
 var is_running := false
 var pending_upgrade := false
 var pending_boss_rewards := 0
+var pending_boss_attack_speed_overcap := false
 var weapon_targeting_modes: Dictionary = {}
 var global_upgrade_levels: Dictionary = {}
 
@@ -203,6 +204,7 @@ var projectile_remaining_damage: Array[float] = []
 var projectile_attack_ids: Array[int] = []
 var projectile_radii: Array[float] = []
 var projectile_kinds: Array[int] = []
+var projectile_per_target_damage: Array[float] = []
 var projectile_homing_strengths: Array[float] = []
 var projectile_homing_aim_positions: Array[Vector2] = []
 var projectile_homing_refresh_timers: Array[float] = []
@@ -302,6 +304,7 @@ func reset_run() -> void:
     projectile_attack_ids.clear()
     projectile_radii.clear()
     projectile_kinds.clear()
+    projectile_per_target_damage.clear()
     projectile_homing_strengths.clear()
     projectile_homing_aim_positions.clear()
     projectile_homing_refresh_timers.clear()
@@ -356,9 +359,10 @@ func reset_run() -> void:
 
     weapon_damage = GameConfig.NEEDLE_DAMAGE
     attack_speed_multiplier = 1.0
+    pending_boss_attack_speed_overcap = false
     owned_weapons.assign(["needle"])
     global_upgrade_levels.clear()
-    for upgrade_id in GameConfig.GLOBAL_UPGRADE_CAPS:
+    for upgrade_id in GameConfig.GLOBAL_UPGRADE_IDS:
         global_upgrade_levels[upgrade_id] = 0
     weapon_upgrade_levels.clear()
     for weapon_id in GameConfig.WEAPON_IDS:
@@ -1221,6 +1225,20 @@ func _spawn_projectile(
     var resolved_speed := weapon_speed if speed < 0.0 else speed
     var resolved_lifetime := weapon_lifetime if lifetime < 0.0 else lifetime
     var resolved_radius := weapon_radius if radius < 0.0 else radius
+    var resolved_per_target_damage := resolved_damage
+    match kind:
+        ProjectileKind.NEEDLE:
+            resolved_per_target_damage = minf(resolved_damage, weapon_damage)
+        ProjectileKind.SNIPER:
+            resolved_per_target_damage = minf(
+                resolved_damage,
+                _scaled_weapon_damage(GameConfig.SNIPER_DAMAGE)
+            )
+        ProjectileKind.FLAK:
+            resolved_per_target_damage = minf(
+                resolved_damage,
+                _scaled_weapon_damage(GameConfig.FLAK_DAMAGE)
+            )
 
     projectile_positions.append(WorldSpace.wrap_position(
         player_position + direction * (GameConfig.PLAYER_RADIUS + resolved_radius + 2.0)
@@ -1231,6 +1249,7 @@ func _spawn_projectile(
     projectile_attack_ids.append(next_attack_id)
     projectile_radii.append(resolved_radius)
     projectile_kinds.append(kind)
+    projectile_per_target_damage.append(resolved_per_target_damage)
     var homing_strength := needle_homing_strength if kind == ProjectileKind.NEEDLE else 0.0
     var has_initial_homing_target := (
         homing_strength > 0.0
@@ -1337,7 +1356,10 @@ func _update_projectiles(delta: float) -> void:
             var damage_multiplier := _damage_multiplier_for_enemy(enemy_index)
             var raw_damage_spent := minf(
                 projectile_remaining_damage[projectile_index],
-                target_remaining_health / damage_multiplier
+                minf(
+                    projectile_per_target_damage[projectile_index],
+                    target_remaining_health / damage_multiplier
+                )
             )
             var damage_value := raw_damage_spent * damage_multiplier
             if damage_value <= 0.0:
@@ -2021,6 +2043,7 @@ func _end_run() -> void:
     is_running = false
     pending_upgrade = false
     pending_boss_rewards = 0
+    pending_boss_attack_speed_overcap = false
     _emit_stats()
     run_ended.emit(get_stats_snapshot())
 
@@ -2034,6 +2057,9 @@ func _check_boss_reward() -> void:
         return
     pending_boss_rewards -= 1
     pending_upgrade = true
+    pending_boss_attack_speed_overcap = (
+        options.size() == 1 and options[0] == "attack_speed"
+    )
     boss_upgrade_requested.emit(options)
 
 
@@ -2046,11 +2072,15 @@ func _check_level_up() -> void:
     level += 1
     xp_required = xp_required_for(level)
     pending_upgrade = true
+    pending_boss_attack_speed_overcap = false
     level_up_requested.emit(_roll_upgrade_options())
 
 
 func apply_upgrade(upgrade_id: String) -> void:
-    if not pending_upgrade or not _is_upgrade_eligible(upgrade_id):
+    var allowed_boss_overcap := (
+        pending_boss_attack_speed_overcap and upgrade_id == "attack_speed"
+    )
+    if not pending_upgrade or (not _is_upgrade_eligible(upgrade_id) and not allowed_boss_overcap):
         return
 
     if GameConfig.WEAPON_UNLOCK_IDS.has(upgrade_id):
@@ -2060,10 +2090,7 @@ func apply_upgrade(upgrade_id: String) -> void:
             "damage":
                 weapon_damage *= 1.20
             "attack_speed":
-                attack_speed_multiplier = minf(
-                    1.0 + GameConfig.ATTACK_SPEED_PER_RANK * float(GameConfig.GLOBAL_UPGRADE_CAPS["attack_speed"]),
-                    attack_speed_multiplier + GameConfig.ATTACK_SPEED_PER_RANK
-                )
+                attack_speed_multiplier += GameConfig.ATTACK_SPEED_PER_RANK
             "move_speed":
                 player_move_speed *= 1.10
                 _update_camera_zoom()
@@ -2132,6 +2159,7 @@ func apply_upgrade(upgrade_id: String) -> void:
             weapon_upgrade_levels[upgrade_id] += 1
 
     pending_upgrade = false
+    pending_boss_attack_speed_overcap = false
     _emit_stats()
 
 
@@ -2239,7 +2267,34 @@ func _roll_weapon_upgrade_options() -> Array[String]:
 
     while options.size() < 3 and not pool.is_empty():
         options.append(_take_weighted_upgrade(pool))
+    if options.is_empty():
+        # Once every weapon slot and weapon upgrade is exhausted, bosses remain
+        # meaningful by granting another shared Attack Speed rank. This bypasses
+        # only the normal-roll cap; the tracked rank can legitimately exceed it.
+        options.append("attack_speed")
     return options
+
+
+func get_upgrade_progress_snapshot(upgrade_ids: Array[String]) -> Dictionary:
+    var result: Dictionary = {}
+    for upgrade_id in upgrade_ids:
+        var current := 0
+        var maximum := 0
+        if GameConfig.WEAPON_UNLOCK_IDS.has(upgrade_id):
+            var weapon_id: String = GameConfig.WEAPON_UNLOCK_IDS[upgrade_id]
+            current = 1 if owned_weapons.has(weapon_id) else 0
+            maximum = 1
+        elif GameConfig.GLOBAL_UPGRADE_IDS.has(upgrade_id):
+            current = int(global_upgrade_levels.get(upgrade_id, 0))
+            maximum = int(GameConfig.GLOBAL_UPGRADE_CAPS.get(upgrade_id, 0))
+        else:
+            current = int(weapon_upgrade_levels.get(upgrade_id, 0))
+            maximum = int(GameConfig.WEAPON_UPGRADE_CAPS.get(upgrade_id, 0))
+        result[upgrade_id] = {
+            "current": current,
+            "maximum": maximum,
+        }
+    return result
 
 
 func _current_normal_enemy_health() -> float:
@@ -2745,6 +2800,7 @@ func _remove_projectile(index: int) -> void:
         projectile_attack_ids[index] = projectile_attack_ids[last]
         projectile_radii[index] = projectile_radii[last]
         projectile_kinds[index] = projectile_kinds[last]
+        projectile_per_target_damage[index] = projectile_per_target_damage[last]
         projectile_homing_strengths[index] = projectile_homing_strengths[last]
         projectile_homing_aim_positions[index] = projectile_homing_aim_positions[last]
         projectile_homing_refresh_timers[index] = projectile_homing_refresh_timers[last]
@@ -2756,6 +2812,7 @@ func _remove_projectile(index: int) -> void:
     projectile_attack_ids.pop_back()
     projectile_radii.pop_back()
     projectile_kinds.pop_back()
+    projectile_per_target_damage.pop_back()
     projectile_homing_strengths.pop_back()
     projectile_homing_aim_positions.pop_back()
     projectile_homing_refresh_timers.pop_back()

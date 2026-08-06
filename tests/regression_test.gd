@@ -25,6 +25,7 @@ func _run() -> void:
     _test_offense_pity(world)
     _test_upgrade_roll_weights(world)
     _test_attack_speed_and_homing(world, hud)
+    _test_upgrade_rank_display(world, hud)
     _test_player_invulnerability(world)
     _test_speed_upgrade_camera_zoom(world)
     _test_game_pace_scaling(world)
@@ -488,6 +489,47 @@ func _test_projectile_damage_conservation(world: SimulationWorld) -> void:
     world._spawn_projectile(Vector2.RIGHT)
     assert(is_equal_approx(world.projectile_remaining_damage[0], 20.0), "Needle pierce must add one full damage budget")
 
+    # A high-health boss may consume one hit, but must not swallow the entire
+    # pierce budget and stop the projectile from reaching the next body.
+    _clear_combat_state(world)
+    world.weapon_damage = 10.0
+    world.weapon_pierce = 1
+    world._add_enemy(Vector2(80.0, 0.0), 1000.0, 0.0, 0.0, 42.0, 20, SimulationWorld.EnemyKind.BOSS, Vector2.ZERO)
+    world._add_enemy(Vector2(155.0, 0.0), 10.0, 0.0, 0.0, 14.0, 1, SimulationWorld.EnemyKind.NORMAL, Vector2.ZERO)
+    world._spawn_projectile(Vector2.RIGHT)
+    world._rebuild_enemy_grid()
+    world.hit_targets.clear()
+    world.hit_damage.clear()
+    world._update_projectiles(0.20)
+    assert(world.hit_targets == [0, 1], "A piercing Needle must continue through a boss into the next enemy")
+    assert(world.hit_damage.size() == 2, "A boss and the following enemy must each receive one Needle hit")
+    assert(is_equal_approx(world.hit_damage[0], 10.0), "A boss must consume only one Needle hit budget")
+    assert(is_equal_approx(world.hit_damage[1], 10.0), "Needle pierce must retain one full hit after crossing a boss")
+    assert(world.projectile_positions.is_empty(), "A two-hit Needle must expire after spending both hit budgets")
+
+    _clear_combat_state(world)
+    world.weapon_damage = GameConfig.NEEDLE_DAMAGE
+    world.sniper_pierce = 1
+    var longshot_hit := world._scaled_weapon_damage(GameConfig.SNIPER_DAMAGE)
+    world._add_enemy(Vector2(100.0, 0.0), 5000.0, 0.0, 0.0, 42.0, 20, SimulationWorld.EnemyKind.BOSS, Vector2.ZERO)
+    world._add_enemy(Vector2(190.0, 0.0), longshot_hit, 0.0, 0.0, 14.0, 1, SimulationWorld.EnemyKind.NORMAL, Vector2.ZERO)
+    world._spawn_projectile(
+        Vector2.RIGHT,
+        longshot_hit * 2.0,
+        GameConfig.SNIPER_SPEED,
+        GameConfig.SNIPER_LIFETIME,
+        GameConfig.SNIPER_RADIUS,
+        SimulationWorld.ProjectileKind.SNIPER
+    )
+    world._rebuild_enemy_grid()
+    world.hit_targets.clear()
+    world.hit_damage.clear()
+    world._update_projectiles(0.16)
+    assert(world.hit_targets == [0, 1], "A piercing Longshot must continue through a boss into the next enemy")
+    assert(is_equal_approx(world.hit_damage[0], longshot_hit), "A boss must consume only one Longshot hit budget")
+    assert(is_equal_approx(world.hit_damage[1], longshot_hit), "Longshot pierce must retain one full hit after crossing a boss")
+    assert(world.projectile_positions.is_empty(), "A two-hit Longshot must expire after spending both hit budgets")
+
 
 func _test_offense_pity(world: SimulationWorld) -> void:
     world.reset_run()
@@ -694,6 +736,44 @@ func _test_attack_speed_and_homing(world: SimulationWorld, hud: GameHud) -> void
     world._update_projectiles(1.0 / 60.0)
     assert(world.projectile_velocities[0].y > 0.0, "A homing Needle must curve toward an off-axis target")
     assert(is_equal_approx(world.projectile_velocities[0].length(), original_speed), "Needle homing must preserve projectile speed")
+
+
+func _test_upgrade_rank_display(world: SimulationWorld, hud: GameHud) -> void:
+    world.reset_run()
+    world.pending_upgrade = true
+    world.apply_upgrade("damage")
+    world.pending_upgrade = true
+    world.apply_upgrade("damage")
+    world.weapon_upgrade_levels["needle_homing"] = 2
+    world.global_upgrade_levels["attack_speed"] = GameConfig.GLOBAL_UPGRADE_CAPS["attack_speed"] + 1
+    world.attack_speed_multiplier = (
+        1.0
+        + GameConfig.ATTACK_SPEED_PER_RANK
+        * float(world.global_upgrade_levels["attack_speed"])
+    )
+    var options: Array[String] = ["damage", "needle_homing", "attack_speed"]
+    hud.show_upgrade(
+        options,
+        "RANK TEST",
+        "Current upgrade counts",
+        world.get_upgrade_progress_snapshot(options)
+    )
+    assert(hud.upgrade_buttons[0].text.ends_with("RANK 2"), "Unlimited upgrades must show only their current count")
+    assert(hud.upgrade_buttons[1].text.ends_with("RANK 2/4"), "Capped upgrades must show current rank out of maximum")
+    assert(hud.upgrade_buttons[2].text.ends_with("RANK 9/8"), "Boss-overcapped Attack Speed must preserve a current rank above its normal cap")
+    for button in hud.upgrade_buttons:
+        assert(button.size.y >= 94.0, "Three-line upgrade cards must retain enough vertical room for rank text")
+    hud.hide_upgrade()
+
+    var unlock_options: Array[String] = ["unlock_sniper"]
+    hud.show_upgrade(
+        unlock_options,
+        "UNLOCK TEST",
+        "Unlock progress",
+        world.get_upgrade_progress_snapshot(unlock_options)
+    )
+    assert(hud.upgrade_buttons[0].text.ends_with("RANK 0/1"), "Weapon unlock cards must show their one-time ownership progress")
+    hud.hide_upgrade()
 
 
 func _test_player_invulnerability(world: SimulationWorld) -> void:
@@ -1042,6 +1122,43 @@ func _test_weapon_slots_and_boss_rewards(scene: Node, world: SimulationWorld, hu
     assert(world.owned_weapons.size() == GameConfig.WEAPON_SLOT_CAP, "The loadout must cap at four weapons")
     assert(not world._is_upgrade_eligible("unlock_sniper"), "New weapon choices must disappear at the slot cap")
     assert(not world._is_upgrade_eligible("unlock_aura"), "Owned weapons cannot be unlocked twice")
+
+    # Exhausted weapon trees must not turn later bosses into empty rewards.
+    # Attack Speed's denominator remains the normal-roll cap, while boss ranks
+    # can continue above it (for example 9/8, then 10/8).
+    for weapon_id in world.owned_weapons:
+        var upgrade_ids: Array = GameConfig.WEAPON_UPGRADE_IDS.get(weapon_id, [])
+        for upgrade_id in upgrade_ids:
+            world.weapon_upgrade_levels[upgrade_id] = GameConfig.WEAPON_UPGRADE_CAPS[upgrade_id]
+    world.global_upgrade_levels["attack_speed"] = GameConfig.GLOBAL_UPGRADE_CAPS["attack_speed"]
+    world.attack_speed_multiplier = (
+        1.0
+        + GameConfig.ATTACK_SPEED_PER_RANK
+        * float(GameConfig.GLOBAL_UPGRADE_CAPS["attack_speed"])
+    )
+    assert(world._roll_weapon_upgrade_options() == ["attack_speed"], "An exhausted boss reward must fall back to Attack Speed")
+    assert(not world._is_upgrade_eligible("attack_speed"), "Overcap boss Attack Speed must remain excluded from normal level-ups")
+
+    world.pending_upgrade = false
+    world.pending_boss_rewards = 1
+    world.is_running = true
+    paused = false
+    world._check_boss_reward()
+    assert(paused, "The exhausted boss fallback must still open a reward screen")
+    assert(hud.upgrade_buttons[0].get_meta("upgrade_id", "") == "attack_speed", "The exhausted boss fallback must offer Attack Speed")
+    assert(hud.upgrade_buttons[0].text.ends_with("RANK 8/8"), "The first overcap reward must show the current normal-cap rank")
+    assert(not hud.upgrade_buttons[1].visible and not hud.upgrade_buttons[2].visible, "The exhausted fallback should be a single deterministic choice")
+    hud._input(boss_key_event)
+    assert(not paused, "Choosing overcap Attack Speed must resume the run")
+    assert(world.global_upgrade_levels["attack_speed"] == 9, "Boss fallback must raise Attack Speed beyond its normal rank cap")
+    assert(is_equal_approx(world.attack_speed_multiplier, 1.72), "The ninth Attack Speed rank must continue increasing the multiplier")
+    assert(not world._is_upgrade_eligible("attack_speed"), "Overcapped Attack Speed must stay out of ordinary level-up rolls")
+
+    world.pending_boss_rewards = 1
+    world._check_boss_reward()
+    assert(hud.upgrade_buttons[0].text.ends_with("RANK 9/8"), "Later boss cards must display overcap progress such as 9/8")
+    hud._input(boss_key_event)
+    assert(world.global_upgrade_levels["attack_speed"] == 10, "Every later exhausted boss must remain a source of Attack Speed")
 
 
 func _test_targeting_modes(scene: Node, world: SimulationWorld, hud: GameHud) -> void:
@@ -1445,6 +1562,7 @@ func _clear_combat_state(world: SimulationWorld) -> void:
     world.projectile_attack_ids.clear()
     world.projectile_radii.clear()
     world.projectile_kinds.clear()
+    world.projectile_per_target_damage.clear()
     world.projectile_homing_strengths.clear()
     world.projectile_homing_aim_positions.clear()
     world.projectile_homing_refresh_timers.clear()

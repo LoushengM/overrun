@@ -176,6 +176,7 @@ func _clear_projectiles(world: SimulationWorld) -> void:
     world.projectile_attack_ids.clear()
     world.projectile_radii.clear()
     world.projectile_kinds.clear()
+    world.projectile_per_target_damage.clear()
     world.projectile_homing_strengths.clear()
     world.projectile_homing_aim_positions.clear()
     world.projectile_homing_refresh_timers.clear()
