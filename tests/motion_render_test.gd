@@ -183,6 +183,7 @@ func _clear_projectiles(world: SimulationWorld) -> void:
     world.projectile_homing_aim_positions.clear()
     world.projectile_homing_refresh_timers.clear()
     world.projectile_homing_has_targets.clear()
+    world.projectile_homing_target_enemy_ids.clear()
 
 
 

@@ -160,6 +160,8 @@ Each body, including a boss, consumes at most one base hit from that budget. A l
 
 A projectile can damage each target only once during its lifetime. Repeat-hit behavior belongs to explicitly persistent or melee attacks. Aura Pulse implements it as separate delayed echoes rather than multiple damage instances in one frame.
 
+Needle Guidance ranks 1–3 reacquire targets within 560 px and retain the normal 0.90-second lifetime. Rank 4 is a post-launch capstone: the initial shot still requires a target inside the normal 700 px Needle range, but the fired projectile ignores the time limit, keeps its target lock across the wrapped arena, and globally reacquires after each hit until every damage budget is spent.
+
 ## 8. Initial enemy
 
 Working enemy name: **Drifter**

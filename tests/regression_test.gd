@@ -805,6 +805,116 @@ func _test_attack_speed_and_homing(world: SimulationWorld, hud: GameHud) -> void
     assert(world.projectile_velocities[0].y > 0.0, "A homing Needle must curve toward an off-axis target")
     assert(is_equal_approx(world.projectile_velocities[0].length(), original_speed), "Needle homing must preserve projectile speed")
 
+    # Rank four changes only post-launch behavior. A target outside the
+    # ordinary Needle launch range must not cause a shot to fire.
+    _clear_combat_state(world)
+    world.player_position = Vector2.ZERO
+    world.needle_homing_strength = GameConfig.NEEDLE_HOMING_MAX
+    world.needle_timer = 0.0
+    world._add_enemy(
+        Vector2(GameConfig.NEEDLE_RANGE + 80.0, 0.0),
+        10000.0,
+        0.0,
+        0.0,
+        14.0,
+        0,
+        SimulationWorld.EnemyKind.NORMAL,
+        Vector2.ZERO
+    )
+    world._update_needle(0.0)
+    assert(world.projectile_positions.is_empty(), "Rank-four Guidance must not extend initial Needle launch range")
+
+    # Ranks one through three retain both the bounded reacquisition radius and
+    # the ordinary 0.90-second projectile lifetime.
+    _clear_combat_state(world)
+    world.player_position = Vector2.ZERO
+    world.needle_homing_strength = 0.30
+    world._add_enemy(Vector2(900.0, 180.0), 10000.0, 0.0, 0.0, 14.0, 0, SimulationWorld.EnemyKind.NORMAL, Vector2.ZERO)
+    world._spawn_projectile(Vector2.RIGHT)
+    world._update_projectiles(1.0 / 60.0)
+    assert(not world.projectile_homing_has_targets[0], "Rank-three Guidance must not reacquire beyond its bounded range")
+    assert(absf(world.projectile_velocities[0].y) < 0.001, "A rank-three Needle must remain straight when every target is out of reacquisition range")
+    for tick in range(60):
+        if world.projectile_positions.is_empty():
+            break
+        world._rebuild_enemy_grid()
+        world._update_projectiles(1.0 / 60.0)
+    assert(world.projectile_positions.is_empty(), "Rank-three Guidance must still expire after the normal Needle lifetime")
+
+    # Rank four ignores elapsed lifetime. With no valid target, it remains alive
+    # rather than timing out, ready to acquire a later spawn.
+    _clear_combat_state(world)
+    world.player_position = Vector2.ZERO
+    world.needle_homing_strength = GameConfig.NEEDLE_HOMING_MAX
+    world._spawn_projectile(Vector2.RIGHT)
+    var rank_four_lifetime := world.projectile_lifetimes[0]
+    for tick in range(120):
+        world._rebuild_enemy_grid()
+        world._update_projectiles(1.0 / 60.0)
+    assert(world.projectile_positions.size() == 1, "Rank-four Guidance must survive beyond the normal 0.90-second lifetime")
+    assert(is_equal_approx(world.projectile_lifetimes[0], rank_four_lifetime), "Rank-four Guidance must ignore the time-limit counter")
+
+    # A +2 rank-four Needle must globally reacquire after each hit and disappear
+    # only after all three damage budgets are spent.
+    _clear_combat_state(world)
+    world.player_position = Vector2.ZERO
+    world.weapon_damage = 10.0
+    world.weapon_pierce = 2
+    world.needle_homing_strength = GameConfig.NEEDLE_HOMING_MAX
+    world.weapon_targeting_modes["needle"] = SimulationWorld.TargetingMode.CLOSEST
+    world._add_enemy(Vector2(100.0, 0.0), 10000.0, 0.0, 0.0, 14.0, 0, SimulationWorld.EnemyKind.NORMAL, Vector2.ZERO)
+    world._add_enemy(Vector2(900.0, 80.0), 10000.0, 0.0, 0.0, 14.0, 0, SimulationWorld.EnemyKind.NORMAL, Vector2.ZERO)
+    world._add_enemy(Vector2(1800.0, -120.0), 10000.0, 0.0, 0.0, 14.0, 0, SimulationWorld.EnemyKind.NORMAL, Vector2.ZERO)
+    world._spawn_projectile(
+        Vector2.RIGHT,
+        -1.0,
+        -1.0,
+        -1.0,
+        -1.0,
+        SimulationWorld.ProjectileKind.NEEDLE,
+        0
+    )
+    var capstone_hit_ids := PackedInt32Array()
+    for tick in range(360):
+        world.hit_targets.clear()
+        world.hit_damage.clear()
+        world._rebuild_enemy_grid()
+        world._update_projectiles(1.0 / 60.0)
+        for target_index in world.hit_targets:
+            capstone_hit_ids.append(world.enemy_entity_ids[target_index])
+        world._resolve_hits()
+        if world.projectile_positions.is_empty():
+            break
+    assert(capstone_hit_ids.size() == 3, "A +2 rank-four Needle must spend exactly three hit budgets")
+    assert(capstone_hit_ids[0] != capstone_hit_ids[1] and capstone_hit_ids[1] != capstone_hit_ids[2], "Rank-four Guidance must reacquire distinct enemies after each hit")
+    assert(world.projectile_positions.is_empty(), "Rank-four Guidance must die when every hit budget is exhausted")
+
+    # Strongest mode applies to global reacquisition after launch.
+    _clear_combat_state(world)
+    world.player_position = Vector2.ZERO
+    world.weapon_damage = 10.0
+    world.weapon_pierce = 1
+    world.needle_homing_strength = GameConfig.NEEDLE_HOMING_MAX
+    world.weapon_targeting_modes["needle"] = SimulationWorld.TargetingMode.STRONGEST
+    world._add_enemy(Vector2(100.0, 0.0), 10000.0, 0.0, 0.0, 14.0, 0, SimulationWorld.EnemyKind.NORMAL, Vector2.ZERO)
+    world._add_enemy(Vector2(1800.0, 0.0), 10000.0, 0.0, 0.0, 42.0, 0, SimulationWorld.EnemyKind.BOSS, Vector2.ZERO)
+    world._spawn_projectile(Vector2.RIGHT, -1.0, -1.0, -1.0, -1.0, SimulationWorld.ProjectileKind.NEEDLE, 0)
+    world.hit_targets.clear()
+    world.hit_damage.clear()
+    for tick in range(30):
+        world._rebuild_enemy_grid()
+        world._update_projectiles(1.0 / 60.0)
+        world._resolve_hits()
+        if world.projectile_hit_enemy_ids[0].size() > 0:
+            break
+    world.projectile_homing_refresh_timers[0] = 0.0
+    world._steer_needle_projectile(0, 1.0 / 60.0)
+    assert(
+        world.projectile_homing_target_enemy_ids[0] == world.enemy_entity_ids[1],
+        "Rank-four Strongest guidance must lock the distant boss after the first target is hit"
+    )
+    world.weapon_targeting_modes["needle"] = SimulationWorld.TargetingMode.CLOSEST
+
 
 func _test_upgrade_rank_display(world: SimulationWorld, hud: GameHud) -> void:
     world.reset_run()
@@ -1643,6 +1753,7 @@ func _clear_combat_state(world: SimulationWorld) -> void:
     world.pending_split_health.clear()
     world.enemy_sprite_frames.clear()
     world.enemy_entity_ids.clear()
+    world.enemy_index_by_entity_id.clear()
     world.enemy_reserved_damage.clear()
     world.enemy_anchors.clear()
     world.enemy_boss_attack_timer.clear()
@@ -1662,6 +1773,7 @@ func _clear_combat_state(world: SimulationWorld) -> void:
     world.projectile_homing_aim_positions.clear()
     world.projectile_homing_refresh_timers.clear()
     world.projectile_homing_has_targets.clear()
+    world.projectile_homing_target_enemy_ids.clear()
     world.field_positions.clear()
     world.field_lifetimes.clear()
     world.field_tick_timers.clear()

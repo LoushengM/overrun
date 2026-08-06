@@ -594,7 +594,7 @@ const UPGRADE_DESCRIPTIONS := {
     "unlock_sniper": "Equip a slow, powerful long-range projectile weapon",
     "unlock_aura": "Equip a melee pulse that hits every nearby enemy",
     "unlock_field": "Equip persistent slowing damage zones",
-    "needle_homing": "+10% Needle homing strength (10/20/30/40%)",
+    "needle_homing": "+10% homing; rank 4 persists until all hits are spent",
     "needle_projectile_count": "+1 Needle projectile per attack",
     "needle_pierce": "+1 Needle hit budget; bosses consume exactly one (max 4)",
     "sniper_pierce": "+1 Longshot hit budget; bosses consume exactly one (max 4)",

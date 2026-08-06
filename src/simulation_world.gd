@@ -191,6 +191,7 @@ var pending_split_positions: Array[Vector2] = []
 var pending_split_health: Array[float] = []
 var enemy_sprite_frames: Array[int] = []
 var enemy_entity_ids: Array[int] = []
+var enemy_index_by_entity_id: Dictionary = {}
 var enemy_reserved_damage: Array[float] = []
 var enemy_anchors: Array[Vector2] = []
 var enemy_boss_attack_timer: Array[float] = []
@@ -211,6 +212,7 @@ var projectile_homing_strengths: Array[float] = []
 var projectile_homing_aim_positions: Array[Vector2] = []
 var projectile_homing_refresh_timers: Array[float] = []
 var projectile_homing_has_targets: Array[bool] = []
+var projectile_homing_target_enemy_ids: Array[int] = []
 
 var field_positions: Array[Vector2] = []
 var field_lifetimes: Array[float] = []
@@ -292,6 +294,7 @@ func reset_run() -> void:
     pending_split_health.clear()
     enemy_sprite_frames.clear()
     enemy_entity_ids.clear()
+    enemy_index_by_entity_id.clear()
     enemy_reserved_damage.clear()
     enemy_anchors.clear()
     enemy_boss_attack_timer.clear()
@@ -312,6 +315,7 @@ func reset_run() -> void:
     projectile_homing_aim_positions.clear()
     projectile_homing_refresh_timers.clear()
     projectile_homing_has_targets.clear()
+    projectile_homing_target_enemy_ids.clear()
     field_positions.clear()
     field_lifetimes.clear()
     field_tick_timers.clear()
@@ -565,6 +569,7 @@ func enable_benchmark(expanded_loadout: bool = false) -> void:
     pending_split_health.clear()
     enemy_sprite_frames.clear()
     enemy_entity_ids.clear()
+    enemy_index_by_entity_id.clear()
     enemy_reserved_damage.clear()
     enemy_anchors.clear()
     enemy_boss_attack_timer.clear()
@@ -1303,6 +1308,9 @@ func _spawn_projectile(
         GameConfig.NEEDLE_HOMING_REFRESH_INTERVAL if has_initial_homing_target else 0.0
     )
     projectile_homing_has_targets.append(has_initial_homing_target)
+    projectile_homing_target_enemy_ids.append(
+        enemy_entity_ids[homing_target_index] if has_initial_homing_target else 0
+    )
     next_attack_id += 1
     if next_attack_id >= 2147483000:
         next_attack_id = 1
@@ -1329,11 +1337,16 @@ func _update_projectiles(delta: float) -> void:
         # The sweep below needs an unwrapped start->finish segment; only the
         # stored position folds back onto the torus.
         projectile_positions[projectile_index] = WorldSpace.wrap_position(finish)
-        projectile_lifetimes[projectile_index] -= delta
-
-        if projectile_lifetimes[projectile_index] <= 0.0:
-            _remove_projectile(projectile_index)
-            continue
+        var unlimited_guidance_lifetime := (
+            projectile_kinds[projectile_index] == ProjectileKind.NEEDLE
+            and projectile_homing_strengths[projectile_index]
+            >= GameConfig.NEEDLE_HOMING_MAX - 0.0001
+        )
+        if not unlimited_guidance_lifetime:
+            projectile_lifetimes[projectile_index] -= delta
+            if projectile_lifetimes[projectile_index] <= 0.0:
+                _remove_projectile(projectile_index)
+                continue
 
         var radius := projectile_radii[projectile_index]
         var collision_padding := radius + GameConfig.BOSS_RADIUS
@@ -1414,6 +1427,7 @@ func _update_projectiles(delta: float) -> void:
             if projectile_kinds[projectile_index] == ProjectileKind.NEEDLE:
                 projectile_homing_refresh_timers[projectile_index] = 0.0
                 projectile_homing_has_targets[projectile_index] = false
+                projectile_homing_target_enemy_ids[projectile_index] = 0
 
             if projectile_remaining_damage[projectile_index] <= 0.0001:
                 exhausted = true
@@ -1442,17 +1456,29 @@ func _steer_needle_projectile(projectile_index: int, delta: float) -> void:
 
     projectile_homing_refresh_timers[projectile_index] -= delta
     if projectile_homing_refresh_timers[projectile_index] <= 0.0:
-        var target_index := _find_needle_homing_target(
-            projectile_positions[projectile_index],
-            GameConfig.NEEDLE_HOMING_ACQUISITION_RANGE,
-            projectile_index
-        )
+        var unlimited_guidance := homing_strength >= GameConfig.NEEDLE_HOMING_MAX - 0.0001
+        var target_index := -1
+        if unlimited_guidance:
+            target_index = _resolve_needle_homing_lock(projectile_index)
+        if target_index < 0:
+            target_index = _find_needle_homing_target(
+                projectile_positions[projectile_index],
+                GameConfig.NEEDLE_HOMING_ACQUISITION_RANGE,
+                projectile_index,
+                unlimited_guidance
+            )
+            if unlimited_guidance:
+                projectile_homing_target_enemy_ids[projectile_index] = (
+                    enemy_entity_ids[target_index] if target_index >= 0 else 0
+                )
+
         projectile_homing_has_targets[projectile_index] = target_index >= 0
         if target_index >= 0:
             projectile_homing_aim_positions[projectile_index] = enemy_positions[target_index]
-        # Queries are much more expensive than steering. Cache a target point for
-        # several ticks and stagger refreshes by attack ID so a Split Shot volley
-        # never scans the same grid cells for every projectile on one frame.
+        # Queries are much more expensive than steering. Cache the target and
+        # stagger refreshes so a Split Shot volley does not update every lock on
+        # the same frame. Rank four resolves its stable lock in O(1) and scans
+        # globally only after the target dies or has already been hit.
         var stagger := (
             float(projectile_attack_ids[projectile_index] % 4)
             * GameConfig.NEEDLE_HOMING_REFRESH_INTERVAL
@@ -1485,11 +1511,73 @@ func _steer_needle_projectile(projectile_index: int, delta: float) -> void:
     projectile_velocities[projectile_index] = Vector2.from_angle(current_angle + turn) * speed
 
 
-func _find_needle_homing_target(origin: Vector2, max_range: float, projectile_index: int) -> int:
+func _resolve_needle_homing_lock(projectile_index: int) -> int:
+    var entity_id := projectile_homing_target_enemy_ids[projectile_index]
+    if entity_id <= 0:
+        return -1
+    var index_value: Variant = enemy_index_by_entity_id.get(entity_id, null)
+    if index_value == null:
+        return -1
+    var enemy_index := int(index_value)
+    if enemy_health[enemy_index] - enemy_reserved_damage[enemy_index] <= 0.0:
+        return -1
+    if _projectile_has_hit_enemy(projectile_index, enemy_index):
+        return -1
+    return enemy_index
+
+
+func _find_needle_homing_target(
+    origin: Vector2,
+    max_range: float,
+    projectile_index: int,
+    unlimited_range: bool = false
+) -> int:
     var best_index := -1
     var best_is_boss := false
-    var best_distance_squared := max_range * max_range
+    var maximum_distance_squared := INF if unlimited_range else max_range * max_range
+    var best_distance_squared := maximum_distance_squared
     var strongest_mode := get_weapon_targeting_mode("needle") == TargetingMode.STRONGEST
+
+    # Rank four performs a global scan only when it needs a new lock. Closest
+    # mode first checks the ordinary spatial neighborhood; if any eligible body
+    # is nearby, that body is necessarily closer than every global fallback and
+    # no full-population scan is needed. Strongest mode still searches globally
+    # because a distant boss outranks a nearby normal enemy.
+    if unlimited_range and not strongest_mode:
+        _collect_enemy_candidates(origin, max_range)
+        for enemy_index in enemy_query_candidates:
+            if enemy_health[enemy_index] - enemy_reserved_damage[enemy_index] <= 0.0:
+                continue
+            if _projectile_has_hit_enemy(projectile_index, enemy_index):
+                continue
+            var distance_squared := WorldSpace.distance_squared(origin, enemy_positions[enemy_index])
+            if distance_squared < max_range * max_range and distance_squared < best_distance_squared:
+                best_index = enemy_index
+                best_distance_squared = distance_squared
+        if best_index >= 0:
+            return best_index
+
+    if unlimited_range:
+        for enemy_index in range(enemy_positions.size()):
+            if enemy_health[enemy_index] - enemy_reserved_damage[enemy_index] <= 0.0:
+                continue
+            if _projectile_has_hit_enemy(projectile_index, enemy_index):
+                continue
+            var distance_squared := WorldSpace.distance_squared(origin, enemy_positions[enemy_index])
+            var is_boss := enemy_kinds[enemy_index] == EnemyKind.BOSS
+            if strongest_mode:
+                if best_index < 0 or (is_boss and not best_is_boss):
+                    best_index = enemy_index
+                    best_is_boss = is_boss
+                    best_distance_squared = distance_squared
+                elif is_boss == best_is_boss and distance_squared < best_distance_squared:
+                    best_index = enemy_index
+                    best_distance_squared = distance_squared
+            elif distance_squared < best_distance_squared:
+                best_index = enemy_index
+                best_distance_squared = distance_squared
+        return best_index
+
     _collect_enemy_candidates(origin, max_range)
     for enemy_index in enemy_query_candidates:
         if enemy_health[enemy_index] - enemy_reserved_damage[enemy_index] <= 0.0:
@@ -1497,7 +1585,7 @@ func _find_needle_homing_target(origin: Vector2, max_range: float, projectile_in
         if _projectile_has_hit_enemy(projectile_index, enemy_index):
             continue
         var distance_squared := WorldSpace.distance_squared(origin, enemy_positions[enemy_index])
-        if distance_squared >= max_range * max_range:
+        if distance_squared >= maximum_distance_squared:
             continue
         var is_boss := enemy_kinds[enemy_index] == EnemyKind.BOSS
         if strongest_mode:
@@ -2000,6 +2088,7 @@ func _add_enemy(
     enemy_fire_timers.append(_initial_fire_timer(archetype_value))
     enemy_sprite_frames.append(_sprite_frame_for(kind_value, archetype_value))
     enemy_entity_ids.append(next_enemy_entity_id)
+    enemy_index_by_entity_id[next_enemy_entity_id] = enemy_index
     next_enemy_entity_id += 1
     enemy_reserved_damage.append(0.0)
     enemy_anchors.append(anchor_value)
@@ -2800,6 +2889,9 @@ func _sort_projectile_candidates() -> void:
 
 func _remove_enemy(index: int) -> void:
     var last := enemy_positions.size() - 1
+    var removed_entity_id := enemy_entity_ids[index]
+    var moved_entity_id := enemy_entity_ids[last]
+    enemy_index_by_entity_id.erase(removed_entity_id)
     _grid_remove_enemy_entry(index)
     if index != last:
         enemy_positions[index] = enemy_positions[last]
@@ -2820,6 +2912,7 @@ func _remove_enemy(index: int) -> void:
         enemy_boss_telegraph[index] = enemy_boss_telegraph[last]
         enemy_boss_hit_protection_timer[index] = enemy_boss_hit_protection_timer[last]
         enemy_update_accumulators[index] = enemy_update_accumulators[last]
+        enemy_index_by_entity_id[moved_entity_id] = index
         _grid_reindex_enemy(last, index)
     enemy_positions.pop_back()
     enemy_health.pop_back()
@@ -2859,6 +2952,7 @@ func _remove_projectile(index: int) -> void:
         projectile_homing_aim_positions[index] = projectile_homing_aim_positions[last]
         projectile_homing_refresh_timers[index] = projectile_homing_refresh_timers[last]
         projectile_homing_has_targets[index] = projectile_homing_has_targets[last]
+        projectile_homing_target_enemy_ids[index] = projectile_homing_target_enemy_ids[last]
     projectile_positions.pop_back()
     projectile_velocities.pop_back()
     projectile_lifetimes.pop_back()
@@ -2872,6 +2966,7 @@ func _remove_projectile(index: int) -> void:
     projectile_homing_aim_positions.pop_back()
     projectile_homing_refresh_timers.pop_back()
     projectile_homing_has_targets.pop_back()
+    projectile_homing_target_enemy_ids.pop_back()
 
 
 func _remove_field(index: int) -> void:

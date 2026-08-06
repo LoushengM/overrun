@@ -11,7 +11,7 @@ The repository intentionally favors a small playable loop over a content framewo
 - An array-based enemy and projectile simulation with batched rendering
 - A 2× compressed progression clock for spawn throughput, boss timing, and enemy scaling, plus a separate 1.5× XP playtest boost (3× base XP overall)
 - XP with three-choice paused level-ups, visible upgrade-rank counts, and level-30 DPS-tracking offense pity
-- Infinite global damage scaling, shared Attack Speed with an 8-rank normal cap and boss overcap fallback, distinct weapon upgrade pools, and four-rank Needle homing
+- Infinite global damage scaling, shared Attack Speed with an 8-rank normal cap and boss overcap fallback, distinct weapon upgrade pools, and four-rank Needle homing with a persistent rank-four capstone
 - Armor with diminishing returns, brief post-hit invulnerability frames, and lethal-hit protection above 50% HP
 - Regeneration only below 50% health after a damage delay
 - Persistent percentage-based health pickups
