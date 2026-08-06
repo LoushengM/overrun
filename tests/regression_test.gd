@@ -960,6 +960,7 @@ func _test_speed_upgrade_camera_zoom(world: SimulationWorld) -> void:
 
 func _test_game_pace_scaling(world: SimulationWorld) -> void:
     assert(is_equal_approx(GameConfig.GAME_PACE_MULTIPLIER, 2.0), "The run progression clock must be doubled")
+    assert(is_equal_approx(GameConfig.XP_GAIN_MULTIPLIER, 1.5), "The XP playtest multiplier must be 1.5x")
     assert(GameConfig.MAX_SPAWNS_PER_TICK == 24, "The per-tick spawn cap must scale with the doubled throughput")
 
     world.reset_run()
@@ -970,7 +971,7 @@ func _test_game_pace_scaling(world: SimulationWorld) -> void:
     world.xp = 0
     world._add_enemy(Vector2.ZERO, 0.0, 0.0, 0.0, 14.0, GameConfig.NORMAL_ENEMY_XP, SimulationWorld.EnemyKind.NORMAL, Vector2.ZERO)
     world._process_deaths()
-    assert(world.xp == 2, "Normal enemy XP rewards must double with game pace")
+    assert(world.xp == 3, "Normal enemy XP rewards must combine 2x pace with the 1.5x XP playtest boost")
 
     _clear_combat_state(world)
     world.elapsed_time = 0.0

@@ -193,11 +193,11 @@ Rewards:
 
 | Source | XP |
 |---|---:|
-| Normal enemy | 2 |
-| Elite | 10 |
-| Boss | 40 |
+| Normal enemy | 3 |
+| Elite | 15 |
+| Boss | 60 |
 
-The underlying source values are multiplied by the global 2× game-pace setting. This doubles player progression without changing the XP requirement curve.
+The underlying source values are multiplied by the global 2× game-pace setting and a separate 1.5× XP playtest multiplier, for 3× base XP overall. This accelerates player progression without changing the XP requirement curve, enemy scaling, spawn throughput, or boss timing.
 
 For level `L`, beginning at `L = 1`, use:
 
@@ -321,7 +321,7 @@ The first boss should:
 - Appear one to two screens away.
 - Persist if ignored.
 - Patrol or pursue within a broad region rather than following forever at any distance.
-- Award 40 XP under the 2× pace setting and queue a paused weapon-focused reward. Guarantee a new weapon while a slot remains; otherwise offer eligible upgrades from owned weapon pools, falling back to overcap Attack Speed after all weapon tracks are exhausted.
+- Award 60 XP under the 2× pace plus 1.5× XP playtest setting and queue a paused weapon-focused reward. Guarantee a new weapon while a slot remains; otherwise offer eligible upgrades from owned weapon pools, falling back to overcap Attack Speed after all weapon tracks are exhausted.
 - Never drop a health pickup.
 - Scale health as `550 × (1 + minutes + 0.20 × minutes²)`.
 - After a full-damage hit, gain 0.35 seconds of 80% damage mitigation. This is resistance, not invulnerability; a protected boss still consumes one projectile hit budget rather than the projectile's entire remaining pierce budget.
@@ -351,7 +351,7 @@ Normal enemies are not shown. Boss markers remain visible regardless of distance
 
 ## 16. Scaling
 
-The run uses a global **2× progression clock**. Displayed time remains real elapsed time, but enemy scaling and boss milestones evaluate twice that value. Spawn throughput and XP rewards are also doubled. Weapon cooldowns, movement, damage-over-time ticks, telegraphs, invulnerability, and other moment-to-moment combat timings remain in real time.
+The run uses a global **2× progression clock**. Displayed time remains real elapsed time, but enemy scaling and boss milestones evaluate twice that value. Spawn throughput is doubled. XP rewards use the same 2× pace multiplier plus a separate 1.5× playtest boost, for 3× base XP overall. Weapon cooldowns, movement, damage-over-time ticks, telegraphs, invulnerability, and other moment-to-moment combat timings remain in real time.
 
 Time increases pressure through a small number of tunable curves:
 

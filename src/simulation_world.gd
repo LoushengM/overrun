@@ -1580,7 +1580,12 @@ func _process_deaths() -> void:
             continue
 
         kills += 1
-        xp += maxi(1, int(round(float(enemy_xp[i]) * GameConfig.GAME_PACE_MULTIPLIER * character_xp_gain)))
+        xp += maxi(1, int(round(
+            float(enemy_xp[i])
+            * GameConfig.GAME_PACE_MULTIPLIER
+            * GameConfig.XP_GAIN_MULTIPLIER
+            * character_xp_gain
+        )))
         if enemy_kinds[i] == EnemyKind.BOSS:
             pending_boss_rewards += 1
             boss_defeated = true
@@ -2931,6 +2936,11 @@ func get_stats_snapshot() -> Dictionary:
         "xp_required": xp_required,
         "elapsed": elapsed_time,
         "game_pace": GameConfig.GAME_PACE_MULTIPLIER,
+        "xp_gain_multiplier": (
+            GameConfig.GAME_PACE_MULTIPLIER
+            * GameConfig.XP_GAIN_MULTIPLIER
+            * character_xp_gain
+        ),
         "paced_elapsed": _paced_elapsed_time(),
         "kills": kills,
         "enemies": enemy_positions.size(),
